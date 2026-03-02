@@ -1,0 +1,357 @@
+<mvc:View
+    controllerName="zfc.finux.zfcvimgr.controller.Detail"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout"
+    xmlns:uxap="sap.uxap">
+
+    <Page
+        id="detailPage"
+        showHeader="false"
+        showNavButton="false"
+        showFooter="true"
+        floatingFooter="true"
+        busy="{detail>/busy}"
+        busyIndicatorDelay="0"
+        enableScrolling="false">
+
+        <content>
+            <uxap:ObjectPageLayout
+                id="objectPageLayout"
+                showTitleInHeaderContent="false"
+                upperCaseAnchorBar="false"
+                useIconTabBar="true">
+
+                <!-- ======================================================== -->
+                <!--  HEADER TITLE — VIM Doc ID + action buttons              -->
+                <!-- ======================================================== -->
+                <uxap:headerTitle>
+                    <uxap:ObjectPageHeader
+                        objectTitle="{detail>/VimDocumentId}"
+                        isObjectTitleAlwaysVisible="true"
+                        isActionAreaAlwaysVisible="true">
+                        <uxap:actions>
+                            <Button
+                                text="{= ${detail>/CreditMemo} === 'X' ? ${i18n>viewCreditMemoButton} : ${i18n>viewInvoiceButton} }"
+                                icon="sap-icon://pdf-attachment"
+                                type="Transparent"
+                                press=".onViewInvoice" />
+                            <Button
+                                icon="sap-icon://refresh"
+                                type="Transparent"
+                                tooltip="{i18n>refreshButton}"
+                                press=".onRefresh" />
+                        </uxap:actions>
+                    </uxap:ObjectPageHeader>
+                </uxap:headerTitle>
+
+                <!-- ======================================================== -->
+                <!--  HEADER CONTENT — attributes + amount                    -->
+                <!-- ======================================================== -->
+                <uxap:headerContent>
+                    <!-- Column 1: Invoice Ref + Status -->
+                    <l:VerticalLayout class="vimHeaderAttrCol">
+                        <ObjectAttribute title="{i18n>invoiceNumber}" text="{detail>/InvoiceNumber}" />
+                        <ObjectStatus
+                            title="{i18n>processStatus}"
+                            text="{detail>/ProcessStatusFormatted}"
+                            state="{= ${detail>/StatusCriticality} === 1 ? 'Success' : ${detail>/StatusCriticality} === 2 ? 'Warning' : ${detail>/StatusCriticality} === 3 ? 'Error' : 'None' }"
+                            icon="{detail>/StatusIcon}"
+                            class="sapUiTinyMarginTop" />
+                    </l:VerticalLayout>
+
+                    <!-- Column 2: PO + Vendor -->
+                    <l:VerticalLayout class="vimHeaderAttrCol">
+                        <ObjectAttribute title="{i18n>purchaseOrder}" text="{detail>/PurchaseOrder}" active="true" press=".onPurchaseOrderPress" />
+                        <ObjectAttribute title="{i18n>vendor}" text="{detail>/Vendor} ({detail>/VendorName})" />
+                    </l:VerticalLayout>
+
+                    <!-- Column 3: Received Date + Payment Terms -->
+                    <l:VerticalLayout class="vimHeaderAttrCol">
+                        <ObjectAttribute title="{i18n>receivedDate}" text="{detail>/ReceivedDateFormatted}" />
+                        <ObjectAttribute title="{i18n>paymentTerms}" text="{detail>/PaymentTerms} ({detail>/PaymentTermsText})" />
+                    </l:VerticalLayout>
+
+                    <!-- Amount block (right) -->
+                    <l:VerticalLayout class="vimHeaderAmount">
+                        <ObjectNumber
+                            number="{ parts: [{path: 'detail>/GrossAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
+                            unit="{detail>/Currency}"
+                            emphasized="true" />
+                    </l:VerticalLayout>
+                </uxap:headerContent>
+
+                <!-- ======================================================== -->
+                <!--  SECTIONS                                                -->
+                <!-- ======================================================== -->
+                <uxap:sections>
+
+                    <!-- TAB 1 : Goods Receipts -->
+                    <uxap:ObjectPageSection
+                        id="grSection"
+                        title="{= ${detail>/CreditMemo} === 'X' ? ${i18n>creditMemoReceiptsTitle} : ${i18n>goodsReceiptsTitle} }"
+                        titleUppercase="false">
+                        <uxap:subSections>
+                            <uxap:ObjectPageSubSection>
+                                <uxap:actions>
+                                    <Button
+                                        text="{i18n>createGoodsReceiptButton}"
+                                        icon="sap-icon://add"
+                                        type="Emphasized"
+                                        press=".onCreateGoodsReceipt"
+                                        visible="{= ${detail>/CreditMemo} !== 'X' }" />
+                                </uxap:actions>
+                                <uxap:blocks>
+                                    <Table
+                                        id="goodsReceiptsTable"
+                                        items="{detail>/GoodsReceipts}"
+                                        mode="{= ${detail>/CreditMemo} === 'X' ? 'None' : 'MultiSelect' }"
+                                        selectionChange=".onGRSelectionChange"
+                                        noDataText="{i18n>noGoodsReceipts}"
+                                        sticky="ColumnHeaders"
+                                        growing="true"
+                                        growingThreshold="50"
+                                        alternateRowColors="true">
+                                        <columns>
+                                            <Column>
+                                                <Text text="{i18n>grNumberYear}" />
+                                            </Column>
+                                            <Column width="5rem">
+                                                <Text text="{i18n>grPurchaseOrderItem}" />
+                                            </Column>
+                                            <Column width="7rem">
+                                                <Text text="{i18n>grEntryDate}" />
+                                            </Column>
+                                            <Column>
+                                                <Text text="{i18n>grDeliveryNote}" />
+                                            </Column>
+                                            <Column>
+                                                <Text text="{i18n>grHeaderText}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>grQuantityDelivered}" />
+                                            </Column>
+                                            <Column width="5rem">
+                                                <Text text="{i18n>grTaxCode}" />
+                                            </Column>
+                                            <Column width="7rem" hAlign="End">
+                                                <Text text="{i18n>grUnitPrice}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>grValueExTax}" />
+                                            </Column>
+                                        </columns>
+                                        <items>
+                                            <ColumnListItem>
+                                                <cells>
+                                                    <Text text="{detail>MaterialDocument}/{detail>FiscalYear}" />
+                                                    <Text text="{detail>PurchaseOrderItem}" />
+                                                    <Text text="{detail>EntryDateFormatted}" />
+                                                    <Text text="{detail>DeliveryNote}" />
+                                                    <Text text="{detail>HeaderText}" />
+                                                    <ObjectNumber
+                                                        number="{ path: 'detail>Quantity', type: 'sap.ui.model.type.Float', formatOptions: { decimals: 3 } }"
+                                                        unit="{detail>Unit}" />
+                                                    <Text text="{detail>TaxCode}" />
+                                                    <ObjectNumber
+                                                        number="{ parts: [{path: 'detail>UnitPrice'}, {path: 'detail>Currency'}], formatter: '.formatter.currencyValue' }"
+                                                        unit="{detail>Currency}" />
+                                                    <ObjectNumber
+                                                        number="{ parts: [{path: 'detail>Amount'}, {path: 'detail>Currency'}], formatter: '.formatter.currencyValue' }"
+                                                        unit="{detail>Currency}"
+                                                        emphasized="true" />
+                                                </cells>
+                                            </ColumnListItem>
+                                        </items>
+                                    </Table>
+                                </uxap:blocks>
+                            </uxap:ObjectPageSubSection>
+                        </uxap:subSections>
+                    </uxap:ObjectPageSection>
+
+                    <!-- TAB 2 : PO Line Items -->
+                    <uxap:ObjectPageSection
+                        id="poSection"
+                        title="{i18n>poItemsTitle}"
+                        titleUppercase="false">
+                        <uxap:subSections>
+                            <uxap:ObjectPageSubSection>
+                                <uxap:blocks>
+                                    <Table
+                                        id="poItemsTable"
+                                        items="{detail>/POItems}"
+                                        mode="None"
+                                        noDataText="{i18n>noPOItems}"
+                                        sticky="ColumnHeaders"
+                                        growing="true"
+                                        growingThreshold="50"
+                                        alternateRowColors="true">
+                                        <columns>
+                                            <Column width="5rem">
+                                                <Text text="{i18n>poItem}" />
+                                            </Column>
+                                            <Column>
+                                                <Text text="{i18n>poDescription}" />
+                                            </Column>
+                                            <Column width="5rem">
+                                                <Text text="{i18n>poTaxCode}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>poOrderQuantity}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>poNetPrice}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>poNetValue}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>poRemainingQty}" />
+                                            </Column>
+                                        </columns>
+                                        <items>
+                                            <ColumnListItem>
+                                                <cells>
+                                                    <Text text="{detail>PurchaseOrderItem}" />
+                                                    <Text text="{detail>Description}" />
+                                                    <Text text="{detail>TaxCode}" />
+                                                    <ObjectNumber
+                                                        number="{ path: 'detail>OrderQuantity', type: 'sap.ui.model.type.Float', formatOptions: { decimals: 3 } }"
+                                                        unit="{detail>OrderUnit}" />
+                                                    <ObjectNumber
+                                                        number="{ parts: [{path: 'detail>NetPriceAmount'}, {path: 'detail>Currency'}], formatter: '.formatter.currencyValue' }"
+                                                        unit="{detail>Currency}" />
+                                                    <ObjectNumber
+                                                        number="{ parts: [{path: 'detail>NetValue'}, {path: 'detail>Currency'}], formatter: '.formatter.currencyValue' }"
+                                                        unit="{detail>Currency}" />
+                                                    <ObjectNumber
+                                                        number="{ path: 'detail>RemainingQuantity', type: 'sap.ui.model.type.Float', formatOptions: { decimals: 3 } }"
+                                                        unit="{detail>OrderUnit}" />
+                                                </cells>
+                                            </ColumnListItem>
+                                        </items>
+                                    </Table>
+                                </uxap:blocks>
+                            </uxap:ObjectPageSubSection>
+                        </uxap:subSections>
+                    </uxap:ObjectPageSection>
+
+                    <!-- TAB 3 : VIM Document Items -->
+                    <uxap:ObjectPageSection
+                        id="vimItemsSection"
+                        title="{i18n>vimItemsTitle}"
+                        titleUppercase="false">
+                        <uxap:subSections>
+                            <uxap:ObjectPageSubSection>
+                                <uxap:blocks>
+                                    <Table
+                                        id="vimItemsTable"
+                                        items="{detail>/VimItems}"
+                                        mode="None"
+                                        noDataText="{i18n>noVimItems}"
+                                        sticky="ColumnHeaders"
+                                        growing="true"
+                                        growingThreshold="50"
+                                        alternateRowColors="true">
+                                        <columns>
+                                            <Column width="5rem">
+                                                <Text text="{i18n>vimItem}" />
+                                            </Column>
+                                            <Column width="5rem">
+                                                <Text text="{i18n>vimItemPOItem}" />
+                                            </Column>
+                                            <Column>
+                                                <Text text="{i18n>vimItemDescription}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>vimItemQuantity}" />
+                                            </Column>
+                                            <Column width="8rem" hAlign="End">
+                                                <Text text="{i18n>vimItemAmount}" />
+                                            </Column>
+                                            <Column width="5rem">
+                                                <Text text="{i18n>vimItemTaxCode}" />
+                                            </Column>
+                                        </columns>
+                                        <items>
+                                            <ColumnListItem>
+                                                <cells>
+                                                    <Text text="{detail>VimDocumentItem}" />
+                                                    <Text text="{detail>PurchaseOrderItem}" />
+                                                    <Text text="{detail>Description}" />
+                                                    <ObjectNumber
+                                                        number="{ path: 'detail>Quantity', type: 'sap.ui.model.type.Float', formatOptions: { decimals: 3 } }"
+                                                        unit="{detail>Unit}" />
+                                                    <ObjectNumber
+                                                        number="{ parts: [{path: 'detail>Amount'}, {path: 'detail>Currency'}], formatter: '.formatter.currencyValue' }"
+                                                        unit="{detail>Currency}" />
+                                                    <Text text="{detail>TaxCode}" />
+                                                </cells>
+                                            </ColumnListItem>
+                                        </items>
+                                    </Table>
+                                </uxap:blocks>
+                            </uxap:ObjectPageSubSection>
+                        </uxap:subSections>
+                    </uxap:ObjectPageSection>
+
+                </uxap:sections>
+            </uxap:ObjectPageLayout>
+        </content>
+
+        <!-- ============================================================ -->
+        <!--  FLOATING FOOTER — selection count + balance + buttons       -->
+        <!-- ============================================================ -->
+        <footer>
+            <OverflowToolbar class="vimFooterBar">
+                <HBox alignItems="Center" class="vimFooterBalance">
+                    <core:Icon src="sap-icon://hint"
+                        color="{= ${detail>/Balance/IsBalanced} ? '#059669' : '#dc2626' }"
+                        tooltip="{= ${detail>/CreditMemo} === 'X' ? ${i18n>balanceTooltipCreditMemo} : ${i18n>balanceTooltipInvoice} }"
+                        class="sapUiTinyMarginEnd" />
+                    <Label text="{detail>/SelectionInfo}"
+                        class="sapUiSmallMarginEnd vimSelectionInfo"
+                        visible="{= ${detail>/CreditMemo} !== 'X' }" />
+                    <Label text="{i18n>balanceNetAmount}:" class="sapUiTinyMarginEnd vimFooterLabel" />
+                    <ObjectNumber
+                        number="{ parts: [{path: 'detail>/Balance/NetAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
+                        unit="{detail>/Currency}"
+                        emphasized="true"
+                        class="sapUiSmallMarginEnd vimFooterNumber" />
+                    <Label text="{i18n>balanceTaxAmount}:" class="sapUiTinyMarginEnd vimFooterLabel" />
+                    <ObjectNumber
+                        number="{ parts: [{path: 'detail>/Balance/TaxAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
+                        unit="{detail>/Currency}"
+                        emphasized="true"
+                        class="sapUiSmallMarginEnd vimFooterNumber" />
+                    <Label text="{i18n>balanceGrossAmount}:" class="sapUiTinyMarginEnd vimFooterLabel" />
+                    <ObjectNumber
+                        number="{ parts: [{path: 'detail>/Balance/GrossAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
+                        unit="{detail>/Currency}"
+                        emphasized="true"
+                        class="sapUiSmallMarginEnd vimFooterNumber" />
+                    <Label text="{i18n>balanceRemaining}:" class="sapUiTinyMarginEnd vimBalanceLabelBold" />
+                    <ObjectNumber
+                        number="{ parts: [{path: 'detail>/Balance/Remaining'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
+                        unit="{detail>/Currency}"
+                        state="{= ${detail>/Balance/IsBalanced} ? 'Success' : 'Error' }"
+                        emphasized="true"
+                        class="vimFooterRemaining" />
+                </HBox>
+                <ToolbarSpacer />
+                <Button
+                    id="rejectButton"
+                    text="{i18n>rejectButton}"
+                    type="Reject"
+                    press=".onReject" />
+                <Button
+                    id="submitButton"
+                    text="{i18n>submitButton}"
+                    type="Emphasized"
+                    press=".onSubmit" />
+            </OverflowToolbar>
+        </footer>
+    </Page>
+
+</mvc:View>

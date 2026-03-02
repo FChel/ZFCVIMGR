@@ -1,0 +1,153 @@
+{
+  "_version": "1.59.0",
+  "sap.app": {
+    "id": "zfc.finux.zfcvimgr",
+    "type": "application",
+    "i18n": "i18n/i18n.properties",
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
+    "applicationVersion": {
+      "version": "0.0.1"
+    },
+    "dataSources": {
+      "mainService": {
+        "uri": "/sap/opu/odata4/sap/z_zfc_vim_doc_ui_srv/srvd/sap/z_zfc_vim_doc_srv/0001/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "intent1": {
+          "semanticObject": "ZFinance",
+          "action": "zvimgr",
+          "signature": {
+            "parameters": {
+              "VimDocumentId": {
+                "defaultValue": {
+                  "value": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "icons": {
+      "icon": "sap-icon://receipt"
+    },
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "flexEnabled": false,
+    "handleValidation": true,
+    "rootView": {
+      "viewName": "zfc.finux.zfcvimgr.view.App",
+      "type": "XML",
+      "async": true,
+      "id": "app"
+    },
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.ui.layout": {},
+        "sap.uxap": {}
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "zfc.finux.zfcvimgr.i18n.i18n"
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true,
+          "groupId": "$auto"
+        }
+      },
+      "appView": {
+        "type": "sap.ui.model.json.JSONModel",
+        "settings": {
+          "data": {
+            "busy": false,
+            "delay": 0
+          }
+        }
+      }
+    },
+    "routing": {
+      "config": {
+        "routerClass": "sap.m.routing.Router",
+        "viewType": "XML",
+        "viewPath": "zfc.finux.zfcvimgr.view",
+        "controlId": "appControl",
+        "controlAggregation": "pages",
+        "async": true
+      },
+      "routes": [
+        {
+          "name": "home",
+          "pattern": "",
+          "target": ["home"]
+        },
+        {
+          "name": "detail",
+          "pattern": "VIMDocument/{VimDocumentId}",
+          "target": ["detail"]
+        }
+      ],
+      "targets": {
+        "home": {
+          "viewType": "XML",
+          "viewName": "Home",
+          "viewId": "home",
+          "viewLevel": 1
+        },
+        "detail": {
+          "viewType": "XML",
+          "viewName": "Detail",
+          "viewId": "detail",
+          "viewLevel": 2
+        }
+      }
+    },
+    "resources": {
+      "css": [
+        {
+          "uri": "css/style.css"
+        }
+      ]
+    },
+    "services": {
+      "ShellUIService": {
+        "factoryName": "sap.ushell.ui5service.ShellUIService",
+        "lazy": false,
+        "settings": {
+          "setTitle": true
+        }
+      }
+    }
+  }
+}

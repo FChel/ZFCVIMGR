@@ -1,0 +1,64 @@
+<mvc:View
+    controllerName="zfc.finux.zfcvimgr.controller.Home"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout">
+
+    <Page
+        showHeader="true"
+        showNavButton="false"
+        title="{i18n>appTitle}">
+
+        <content>
+            <VBox class="vimHomeContainer">
+                <Panel class="vimHomeCard">
+                    <content>
+                        <!-- Icon -->
+                        <VBox class="vimHomeIcon">
+                            <core:Icon src="sap-icon://receipt" />
+                        </VBox>
+
+                        <!-- Title -->
+                        <Title
+                            text="{i18n>homeTitle}"
+                            level="H2"
+                            titleStyle="H2"
+                            class="vimHomeTitle" />
+
+                        <!-- Subtitle -->
+                        <Text
+                            text="{i18n>homeSubtitle}"
+                            class="vimHomeSubtitle sapUiSmallMarginBottom" />
+
+                        <!-- Input Row with Value Help -->
+                        <HBox class="vimInputRow" alignItems="End">
+                            <Input
+                                id="vimDocIdInput"
+                                placeholder="{i18n>vimDocIdPlaceholder}"
+                                value="{appView>/vimDocId}"
+                                valueLiveUpdate="true"
+                                submit=".onOpenDocument"
+                                showValueHelp="true"
+                                valueHelpRequest=".onValueHelpRequest"
+                                width="100%"
+                                type="Text"
+                                maxLength="20">
+                                <layoutData>
+                                    <FlexItemData growFactor="1" />
+                                </layoutData>
+                            </Input>
+                            <Button
+                                text="{i18n>openButtonText}"
+                                type="Emphasized"
+                                icon="sap-icon://arrow-right"
+                                press=".onOpenDocument" />
+                        </HBox>
+
+                    </content>
+                </Panel>
+            </VBox>
+        </content>
+    </Page>
+
+</mvc:View>

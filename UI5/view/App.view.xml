@@ -1,0 +1,12 @@
+<mvc:View
+    controllerName="zfc.finux.zfcvimgr.controller.App"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    displayBlock="true">
+
+    <App id="appControl"
+         busy="{appView>/busy}"
+         busyIndicatorDelay="{appView>/delay}">
+    </App>
+
+</mvc:View>

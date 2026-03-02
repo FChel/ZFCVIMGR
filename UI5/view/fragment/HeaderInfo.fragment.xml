@@ -1,0 +1,69 @@
+<core:FragmentDefinition
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout">
+
+    <VBox width="100%" class="vimHeaderInfo">
+
+        <!-- Row 1: Gross amount callout, top-right -->
+        <HBox justifyContent="SpaceBetween" alignItems="Start" width="100%"
+              class="sapUiSmallMarginBottom">
+            <VBox>
+                <Title
+                    text="{= ${detail>/CreditMemo} === 'X' ? ${i18n>creditMemoDetailsTitle} : ${i18n>invoiceDetailsTitle} }"
+                    level="H5" />
+            </VBox>
+            <ObjectNumber
+                number="{ path: 'detail>/GrossAmount', type: 'sap.ui.model.type.Float', formatOptions: { decimals: 2, groupingEnabled: true } }"
+                unit="{detail>/Currency}"
+                emphasized="true"
+                class="vimGrossAmount" />
+        </HBox>
+
+        <!-- Row 2: Key fields in 3 columns (matches existing app layout) -->
+        <l:Grid defaultSpan="XL4 L4 M4 S12" containerQuery="true">
+
+            <!-- Column 1 -->
+            <VBox>
+                <HBox class="vimHeaderField">
+                    <Label text="{i18n>vendor}:" class="vimFieldLabel" />
+                    <Text text="{detail>/Vendor} ( {detail>/VendorName} )" class="sapUiTinyMarginBegin" />
+                </HBox>
+                <HBox class="vimHeaderField">
+                    <Label text="{i18n>invoiceNumber}:" class="vimFieldLabel" />
+                    <Text text="{detail>/InvoiceNumber}" class="sapUiTinyMarginBegin" />
+                </HBox>
+            </VBox>
+
+            <!-- Column 2 -->
+            <VBox>
+                <HBox class="vimHeaderField">
+                    <Label text="{i18n>purchaseOrder}:" class="vimFieldLabel" />
+                    <Link text="{detail>/PurchaseOrder}" press=".onPurchaseOrderPress" class="sapUiTinyMarginBegin" />
+                </HBox>
+                <HBox class="vimHeaderField">
+                    <Label text="{i18n>paymentTerms}:" class="vimFieldLabel" />
+                    <Text text="{detail>/PaymentTerms} ( {detail>/PaymentTermsText} )" class="sapUiTinyMarginBegin" />
+                </HBox>
+            </VBox>
+
+            <!-- Column 3 -->
+            <VBox>
+                <HBox class="vimHeaderField">
+                    <Label text="{i18n>receivedDate}:" class="vimFieldLabel" />
+                    <Text text="{
+                        path: 'detail>/ReceivedDate',
+                        type: 'sap.ui.model.type.Date',
+                        formatOptions: { pattern: 'dd.MM.yyyy' }
+                    }" class="sapUiTinyMarginBegin" />
+                </HBox>
+                <HBox class="vimHeaderField">
+                    <Label text="{i18n>vimDocumentId}:" class="vimFieldLabel" />
+                    <Text text="{detail>/VimDocumentId}" class="sapUiTinyMarginBegin" />
+                </HBox>
+            </VBox>
+
+        </l:Grid>
+    </VBox>
+
+</core:FragmentDefinition>

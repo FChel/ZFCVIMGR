@@ -1,0 +1,73 @@
+<core:FragmentDefinition
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout">
+
+    <VBox class="sapUiSmallMarginTopBottom">
+        <l:Grid
+            defaultSpan="XL3 L3 M6 S6"
+            containerQuery="true"
+            class="vimBalanceGrid">
+
+            <!-- Net Amount (ex Tax) -->
+            <VBox class="vimBalanceItem" alignItems="Center">
+                <Label text="{i18n>balanceNetAmount}" />
+                <ObjectNumber
+                    number="{
+                        path: 'detail>/Balance/NetAmount',
+                        type: 'sap.ui.model.type.Float',
+                        formatOptions: { decimals: 2, groupingEnabled: true }
+                    }"
+                    unit="{detail>/Currency}" />
+            </VBox>
+
+            <!-- Tax Amount -->
+            <VBox class="vimBalanceItem" alignItems="Center">
+                <Label text="{i18n>balanceTaxAmount}" />
+                <ObjectNumber
+                    number="{
+                        path: 'detail>/Balance/TaxAmount',
+                        type: 'sap.ui.model.type.Float',
+                        formatOptions: { decimals: 2, groupingEnabled: true }
+                    }"
+                    unit="{detail>/Currency}" />
+            </VBox>
+
+            <!-- Gross Amount (inc Tax) -->
+            <VBox class="vimBalanceItem" alignItems="Center">
+                <Label text="{i18n>balanceGrossAmount}" />
+                <ObjectNumber
+                    number="{
+                        path: 'detail>/Balance/GrossAmount',
+                        type: 'sap.ui.model.type.Float',
+                        formatOptions: { decimals: 2, groupingEnabled: true }
+                    }"
+                    unit="{detail>/Currency}" />
+            </VBox>
+
+            <!-- Balance (Remaining) -->
+            <VBox
+                alignItems="Center"
+                class="{= ${detail>/Balance/IsBalanced} ? 'vimBalanceItem vimBalanceOk' : 'vimBalanceItem vimBalanceError' }">
+                <Label text="{i18n>balanceRemaining}" />
+                <ObjectNumber
+                    number="{
+                        path: 'detail>/Balance/Remaining',
+                        type: 'sap.ui.model.type.Float',
+                        formatOptions: { decimals: 2, groupingEnabled: true }
+                    }"
+                    unit="{detail>/Currency}"
+                    state="{= ${detail>/Balance/IsBalanced} ? 'Success' : 'Error' }" />
+            </VBox>
+
+        </l:Grid>
+
+        <!-- Balance status message -->
+        <MessageStrip
+            text="{= ${detail>/Balance/IsBalanced} ? ${i18n>balanceOk} : ${i18n>balanceNotOk} }"
+            type="{= ${detail>/Balance/IsBalanced} ? 'Success' : 'Warning' }"
+            showIcon="true"
+            class="sapUiSmallMarginTop" />
+    </VBox>
+
+</core:FragmentDefinition>

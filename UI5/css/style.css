@@ -1,0 +1,147 @@
+/* ============================================================
+   Match VIM Invoice Receipts – Custom Styles
+   ObjectPageLayout (uxap) + Floating Footer
+   ============================================================ */
+
+/* ---- Home Page ---- */
+
+.vimHomeContainer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 3rem);
+    background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
+}
+
+.vimHomeCard {
+    max-width: 32rem;
+    width: 100%;
+}
+
+.vimHomeCard .sapMPanelContent {
+    padding: 1.5rem 2rem 2rem !important;
+}
+
+.vimHomeIcon {
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+
+.vimHomeIcon .sapUiIcon {
+    font-size: 3rem;
+    color: #0070b1;
+}
+
+.vimHomeTitle {
+    text-align: center;
+    margin-bottom: 0.25rem;
+}
+
+.vimHomeSubtitle {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    color: #6b7280;
+}
+
+.vimInputRow {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.vimInputRow .sapMInput {
+    flex: 1;
+}
+
+/* ---- Object Page Header Content ---- */
+
+/* Amount block — flex-grow fills remaining space, text right */
+.vimHeaderAmount {
+    flex-grow: 1 !important;
+    text-align: right;
+    min-width: 8rem;
+}
+
+.vimHeaderAmount .sapMObjectNumber {
+    justify-content: flex-end;
+    white-space: nowrap;
+}
+
+/* Attribute columns */
+.vimHeaderAttrCol {
+    min-width: 14rem;
+    padding-right: 2rem;
+}
+
+.vimHeaderAttrCol .sapMObjectAttributeDiv {
+    padding: 0.1875rem 0;
+}
+
+/* ---- Anchor Bar (Icon Tabs) ---- */
+
+.sapUxAPObjectPageLayout .sapUxAPAnchorBarButton {
+    max-width: 16rem;
+}
+
+/* ---- Floating Footer — PROMINENT styling ---- */
+
+.vimFooterBar {
+    border-top: 2px solid #0070b1;
+    background-color: #f8f9fa !important;
+    padding: 0.25rem 0.5rem;
+}
+
+/* Selection count — subtle but visible */
+.vimSelectionInfo .sapMLabel {
+    color: #0070b1;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    font-style: italic;
+}
+
+.vimFooterLabel .sapMLabel {
+    color: #374151;
+    font-weight: 500;
+    font-size: 0.8125rem;
+}
+
+.vimFooterNumber .sapMObjectNumberText {
+    font-weight: 700 !important;
+    font-size: 1rem !important;
+}
+
+.vimBalanceLabelBold .sapMLabel {
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #111827;
+}
+
+.vimFooterRemaining .sapMObjectNumberText {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+}
+
+.vimFooterBalance {
+    flex-wrap: wrap;
+    gap: 0.125rem;
+}
+
+/* ---- Tables ---- */
+
+.sapUxAPObjectPageSubSection .sapMListTblCell {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+}
+
+/* ---- Responsive ---- */
+
+@media (max-width: 600px) {
+    .vimFooterBalance {
+        display: none !important;
+    }
+
+    .vimHeaderAttrCol {
+        min-width: 100%;
+        padding-right: 0;
+    }
+}
