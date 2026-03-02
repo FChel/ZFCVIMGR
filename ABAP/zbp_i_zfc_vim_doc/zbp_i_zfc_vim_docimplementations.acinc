@@ -1,0 +1,547 @@
+CLASS lhc_vimdocument DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    TYPES: BEGIN OF ty_gr_item,
+             ebeln TYPE ebeln,
+             ebelp TYPE ebelp,
+             menge TYPE menge_d,
+             bpmng TYPE bpmng,
+             wrbtr TYPE wrbtr,
+             dmbtr TYPE dmbtr,
+             waers TYPE waers,
+             mwskz TYPE mwskz,
+             budat TYPE budat,
+             matnr TYPE matnr,
+             werks TYPE werks_d,
+             bwart TYPE bwart,
+             shkzg TYPE shkzg,
+             lfbnr TYPE lfbnr,
+             meins TYPE meins,
+             lgort TYPE lgort_d,
+           END OF ty_gr_item.
+
+    TYPES: tt_gr_item TYPE STANDARD TABLE OF ty_gr_item WITH default key.
+
+    METHODS get_tax_rate
+      IMPORTING iv_company_code TYPE bukrs
+                iv_tax_code     TYPE mwskz
+                iv_currency     TYPE waers
+      RETURNING VALUE(rv_rate)  TYPE /OPT/VIM_TAX_RATE.
+
+    METHODS calculate_balance FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~calculatebalance RESULT result.
+
+    METHODS validate FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~validate RESULT result.
+
+    METHODS submit_gr FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~submitgr RESULT result.
+
+    METHODS reject FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~reject RESULT result.
+
+    METHODS determine_vendor_name FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR vimdocument~determinevendorname.
+
+    METHODS determine_payment_terms_text FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR vimdocument~determinepaymenttermstext.
+
+    METHODS validate_status FOR VALIDATE ON SAVE
+      IMPORTING keys FOR vimdocument~validatestatus.
+
+    METHODS validate_duplicate_gr FOR VALIDATE ON SAVE
+      IMPORTING keys FOR vimdocument~validateduplicategr.
+
+    METHODS check_gr_quantity FOR VALIDATE ON SAVE
+      IMPORTING keys FOR vimdocument~checkgrquantity.
+
+    METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
+      IMPORTING request requested_authorizations FOR vimdocument RESULT result.
+
+    METHODS read_gr_items
+      IMPORTING iv_purchase_order TYPE ebeln
+      RETURNING VALUE(rt_result)  TYPE tt_gr_item.
+
+ENDCLASS.
+
+CLASS lhc_vimdocument IMPLEMENTATION.
+
+  METHOD read_gr_items.
+    " Centralised method to read GR items from EKBE
+    " Used by calculateBalance, validate, and submitGR
+    SELECT ekbe~ebeln,
+           ekbe~ebelp,
+           ekbe~menge,
+           ekbe~bpmng,
+           ekbe~wrbtr,
+           ekbe~dmbtr,
+           ekbe~waers,
+           ekbe~mwskz,
+           ekbe~budat,
+           ekbe~matnr,
+           ekbe~werks,
+           ekbe~bwart,
+           ekbe~shkzg,
+           ekbe~lfbnr
+      FROM ekbe
+     WHERE ekbe~ebeln = @iv_purchase_order
+       AND ekbe~vgabe = '1'
+       AND ( ekbe~bwart = '101'
+          OR ekbe~bwart = '102'
+          OR ekbe~bwart = '161' )
+      INTO TABLE @rt_result.
+
+    " Get unit and storage location from MATDOC
+    IF rt_result IS NOT INITIAL.
+      SELECT mblnr, mjahr, zeile, meins, lgort
+        FROM matdoc
+        FOR ALL ENTRIES IN @rt_result
+       WHERE mblnr = @rt_result-lfbnr
+         AND mjahr = @rt_result-budat(4)
+        INTO TABLE @DATA(lt_matdoc).
+
+      " Note: The MATDOC join above is simplified.
+      " For production, you may need to join on the actual
+      " material document number from EKBE (belnr/gjahr/buzei)
+      " rather than lfbnr. Adjust as needed.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD calculate_balance.
+    " Read the VIM document instance
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vimdocumentid purchaseorder companycode
+                 netamount taxamount grossamount currency creditmemo )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+
+      " Read GR items from EKBE
+      DATA(lt_gr_items) = read_gr_items( vim_doc-purchaseorder ).
+
+      " Get PO currency
+      DATA lv_currency TYPE waers.
+      SELECT SINGLE waers FROM ekko
+        INTO @lv_currency
+        WHERE ebeln = @vim_doc-purchaseorder.
+
+      DATA(calculated_net)   = CONV wrbtr( 0 ).
+      DATA(calculated_tax)   = CONV wrbtr( 0 ).
+      DATA(calculated_gross) = CONV wrbtr( 0 ).
+
+      " Calculate totals from available GR items
+      LOOP AT lt_gr_items INTO DATA(ls_gr)
+        WHERE bwart  = '101'
+          AND shkzg  = 'S'
+          AND lfbnr IS INITIAL.
+
+        " Get the tax rate for this line's tax code
+        DATA(lv_tax_rate) = get_tax_rate(
+          iv_company_code = vim_doc-companycode
+          iv_tax_code     = ls_gr-mwskz
+          iv_currency     = lv_currency ).
+
+        " Net amount is the GR line value (ex tax)
+        DATA(lv_line_net) = ls_gr-wrbtr.
+
+        " Calculate tax for this line
+        DATA(lv_line_tax) = CONV wrbtr( 0 ).
+        IF lv_tax_rate > 0.
+          lv_line_tax = lv_line_net * lv_tax_rate / 100.
+        ENDIF.
+
+        " Accumulate
+        calculated_net   = calculated_net   + lv_line_net.
+        calculated_tax   = calculated_tax   + lv_line_tax.
+
+      ENDLOOP.
+
+      " Gross = net + tax
+      calculated_gross = calculated_net + calculated_tax.
+
+      " Calculate balance (invoice gross minus calculated gross)
+      DATA(balance_difference) = CONV wrbtr( vim_doc-grossamount - calculated_gross ).
+
+      " Check tolerance (1 cent as per original implementation)
+      CONSTANTS lc_tolerance TYPE wrbtr VALUE '0.01'.
+      DATA(is_within_tolerance) = COND abap_boolean(
+        WHEN abs( balance_difference ) <= lc_tolerance THEN abap_true
+        ELSE abap_false ).
+
+      " Return the document as result
+      APPEND VALUE #(
+        %tky   = vim_doc-%tky
+        %param = vim_doc
+      ) TO result.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_tax_rate.
+    " Look up tax rate from configuration
+    " Uses the OpenText VIM function module which reads from
+    " tax condition tables (KONP/A003 etc.)
+    CALL FUNCTION '/OPT/GET_TAX_RATE'
+      EXPORTING
+        i_bukrs            = iv_company_code
+        i_mwskz            = iv_tax_code
+        i_rbkpv            = ''
+        i_waers            = iv_currency
+      IMPORTING
+        e_kbetr            = rv_rate
+      EXCEPTIONS
+        tax_rate_not_found = 1
+        OTHERS             = 2.
+
+    IF sy-subrc <> 0.
+      rv_rate = 0.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD validate.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        ALL FIELDS
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      DATA(has_errors) = abap_false.
+
+      " 1. Check status
+      CASE vim_doc-processstatus.
+        WHEN '06' OR '08' OR '10' OR '15' OR '16' OR '18'.
+          has_errors = abap_true.
+
+          APPEND VALUE #(
+            %tky = vim_doc-%tky
+            %msg = new_message(
+              id       = 'ZVIM_GR_APP'
+              number   = '001'
+              severity = if_abap_behv_message=>severity-error )
+          ) TO reported-vimdocument.
+      ENDCASE.
+
+      " 2. Check if GR already exists
+      SELECT SINGLE @abap_true
+        FROM mkpf
+        WHERE xblnr = @vim_doc-vimdocumentid
+          AND mjahr = @vim_doc-fiscalyear
+        INTO @DATA(gr_exists).
+
+      IF gr_exists = abap_true.
+        has_errors = abap_true.
+
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '006'
+            severity = if_abap_behv_message=>severity-error )
+        ) TO reported-vimdocument.
+      ENDIF.
+
+      " 3. Check GR items exist for this PO
+      DATA(lt_gr_items) = read_gr_items( vim_doc-purchaseorder ).
+
+      DATA(available_count) = 0.
+      LOOP AT lt_gr_items INTO DATA(ls_gr)
+        WHERE bwart  = '101'
+          AND shkzg  = 'S'
+          AND lfbnr IS INITIAL.
+        available_count = available_count + 1.
+      ENDLOOP.
+
+      IF available_count = 0.
+        has_errors = abap_true.
+
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '001'
+            severity = if_abap_behv_message=>severity-error )
+        ) TO reported-vimdocument.
+      ENDIF.
+
+      " Set result
+      APPEND VALUE #(
+        %tky   = vim_doc-%tky
+        %param = vim_doc
+      ) TO result.
+
+      IF has_errors = abap_true.
+        APPEND VALUE #( %tky = vim_doc-%tky ) TO failed-vimdocument.
+      ELSE.
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '002'
+            severity = if_abap_behv_message=>severity-success )
+        ) TO reported-vimdocument.
+      ENDIF.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD submit_gr.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        ALL FIELDS
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+
+      " Read GR items from EKBE
+      DATA(lt_gr_items) = read_gr_items( vim_doc-purchaseorder ).
+
+      " Prepare BAPI structures
+      DATA: gm_code    TYPE bapi2017_gm_code,
+            gm_header  TYPE bapi2017_gm_head_01,
+            gm_items   TYPE TABLE OF bapi2017_gm_item_create,
+            gm_item    TYPE bapi2017_gm_item_create,
+            return_tab TYPE TABLE OF bapiret2,
+            matdoc_ret TYPE bapi2017_gm_head_ret.
+
+      gm_code-gm_code = '01'.
+
+      gm_header-pstng_date = vim_doc-postingdate.
+      gm_header-doc_date   = vim_doc-documentdate.
+      gm_header-ref_doc_no = vim_doc-vimdocumentid.
+      gm_header-header_txt = |VIM GR { vim_doc-vimdocumentid }|.
+
+      " Build item data from available GR items
+      LOOP AT lt_gr_items INTO DATA(ls_gr)
+        WHERE bwart  = '101'
+          AND shkzg  = 'S'
+          AND lfbnr IS INITIAL.
+
+        CLEAR gm_item.
+        gm_item-material  = ls_gr-matnr.
+        gm_item-plant     = ls_gr-werks.
+        gm_item-stge_loc  = ls_gr-lgort.
+        gm_item-move_type = ls_gr-bwart.
+        gm_item-entry_qnt = ls_gr-menge.
+        gm_item-entry_uom = ls_gr-meins.
+        gm_item-po_number = ls_gr-ebeln.
+        gm_item-po_item   = ls_gr-ebelp.
+        gm_item-mvt_ind   = 'B'.
+
+        APPEND gm_item TO gm_items.
+      ENDLOOP.
+
+      " TODO: Call BAPI_GOODSMVT_CREATE
+      " TODO: Handle response and update VIM document status
+      " TODO: Save to audit tables (ZVIM_GR_APP_HDR / ZVIM_GR_APP_ITM)
+
+      " Return result
+      APPEND VALUE #(
+        %tky   = vim_doc-%tky
+        %param = vim_doc
+      ) TO result.
+
+      APPEND VALUE #(
+        %tky = vim_doc-%tky
+        %msg = new_message(
+          id       = 'ZVIM_GR_APP'
+          number   = '003'
+          severity = if_abap_behv_message=>severity-information )
+      ) TO reported-vimdocument.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD reject.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        ALL FIELDS
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    MODIFY ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        UPDATE FIELDS ( processstatus )
+        WITH VALUE #( FOR vim_doc IN vim_docs (
+          %tky          = vim_doc-%tky
+          processstatus = 'REJECTED'
+        ) ).
+
+    LOOP AT vim_docs INTO DATA(vim_doc1).
+      APPEND VALUE #(
+        %tky   = vim_doc1-%tky
+        %param = vim_doc1
+      ) TO result.
+
+      APPEND VALUE #(
+        %tky = vim_doc1-%tky
+        %msg = new_message(
+          id       = 'ZVIM_GR_APP'
+          number   = '004'
+          severity = if_abap_behv_message=>severity-success )
+      ) TO reported-vimdocument.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD determine_vendor_name.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vendor )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      SELECT SINGLE suppliername
+        FROM i_supplier
+        WHERE supplier = @vim_doc-vendor
+        INTO @DATA(vendor_name).
+
+      IF sy-subrc = 0.
+        MODIFY ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+          ENTITY vimdocument
+            UPDATE FIELDS ( vendorname )
+            WITH VALUE #( (
+              %tky       = vim_doc-%tky
+              vendorname = vendor_name
+            ) ).
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD determine_payment_terms_text.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( paymentterms )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      SELECT SINGLE paymenttermsname
+        FROM i_paymenttermstext
+        WHERE paymentterms = @vim_doc-paymentterms
+          AND language     = @sy-langu
+        INTO @DATA(payment_terms_text).
+
+      IF sy-subrc = 0.
+        MODIFY ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+          ENTITY vimdocument
+            UPDATE FIELDS ( paymenttermstext )
+            WITH VALUE #( (
+              %tky             = vim_doc-%tky
+              paymenttermstext = payment_terms_text
+            ) ).
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD validate_status.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( processstatus )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      CASE vim_doc-processstatus.
+        WHEN '06' OR '08' OR '10' OR '15' OR '16' OR '18'.
+
+          APPEND VALUE #(
+            %tky = vim_doc-%tky
+            %msg = new_message(
+              id       = 'ZVIM_GR_APP'
+              number   = '005'
+              severity = if_abap_behv_message=>severity-error )
+          ) TO reported-vimdocument.
+
+          APPEND VALUE #( %tky = vim_doc-%tky ) TO failed-vimdocument.
+      ENDCASE.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD validate_duplicate_gr.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vimdocumentid fiscalyear )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      SELECT SINGLE @abap_true
+        FROM mkpf
+        WHERE xblnr = @vim_doc-vimdocumentid
+          AND mjahr = @vim_doc-fiscalyear
+        INTO @DATA(gr_exists).
+
+      IF gr_exists = abap_true.
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '006'
+            severity = if_abap_behv_message=>severity-error )
+        ) TO reported-vimdocument.
+
+        APPEND VALUE #( %tky = vim_doc-%tky ) TO failed-vimdocument.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD check_gr_quantity.
+    " TODO: Implement actual GR quantity check logic
+    " 1. Read all GRs for the PO
+    " 2. Calculate total GR value
+    " 3. Compare against invoice amount
+    " 4. Check tolerances
+
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vimdocumentid grossamount purchaseorder )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+  ENDMETHOD.
+
+
+  METHOD get_global_authorizations.
+    IF requested_authorizations-%create = if_abap_behv=>mk-on.
+      result-%create = if_abap_behv=>auth-allowed.
+    ENDIF.
+
+    IF requested_authorizations-%update = if_abap_behv=>mk-on.
+      result-%update = if_abap_behv=>auth-allowed.
+    ENDIF.
+
+    IF requested_authorizations-%delete = if_abap_behv=>mk-on.
+      result-%delete = if_abap_behv=>auth-allowed.
+    ENDIF.
+  ENDMETHOD.
+
+ENDCLASS.

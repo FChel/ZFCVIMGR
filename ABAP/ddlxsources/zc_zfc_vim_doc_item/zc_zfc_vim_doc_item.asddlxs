@@ -1,0 +1,51 @@
+@Metadata.layer: #CORE
+annotate view ZC_ZFC_VIM_DOC_ITEM with
+{
+  @UI.lineItem: [{ position: 10 }]
+  @UI.identification: [{ position: 10 }]
+  VimDocumentId;
+
+  @UI.lineItem: [{ position: 20 }]
+  @UI.identification: [{ position: 20 }]
+  VimDocumentItem;
+
+  @UI.lineItem: [{ position: 30 }]
+  @UI.identification: [{ position: 30 }]
+  PurchaseOrder;
+
+  @UI.lineItem: [{ position: 40 }]
+  @UI.identification: [{ position: 40 }]
+  PurchaseOrderItem;
+
+  @UI.lineItem: [{ position: 50 }]
+  @UI.identification: [{ position: 50 }]
+  Material;
+
+  @UI.lineItem: [{ position: 60 }]
+  @UI.identification: [{ position: 60 }]
+  Description;
+
+  @UI.lineItem: [{ position: 70 }]
+  @UI.identification: [{ position: 70 }]
+  Quantity;
+
+  @UI.lineItem: [{ position: 80 }]
+  @UI.identification: [{ position: 80 }]
+  Unit;
+
+  @UI.lineItem: [{ position: 90 }]
+  @UI.identification: [{ position: 90 }]
+  Amount;
+
+  @UI.identification: [{ position: 100 }]
+  TaxCode;
+
+  @UI.identification: [{ position: 110 }]
+  GLAccount;
+
+  @UI.identification: [{ position: 120 }]
+  CostCenter;
+
+  @UI.identification: [{ position: 130 }]
+  CompanyCode;
+}

@@ -1,0 +1,8 @@
+@EndUserText.label: 'Access Control for VIM Document'
+@MappingRole: true
+define role ZC_ZFC_VIM_DOC {
+  grant select on ZC_ZFC_VIM_DOC
+    where 
+      // Inherit conditions from interface layer
+      inheriting conditions from entity ZI_ZFC_VIM_DOC;
+}
