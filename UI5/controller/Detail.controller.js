@@ -313,16 +313,51 @@ sap.ui.define([
             }
         },
 
+        /**
+         * View Invoice / Credit Memo attachment.
+         *
+         * Calls the RAP action 'getAttachment' which resolves the direct
+         * archive URL for the document stored in OpenText. The browser
+         * then opens the URL directly — no binary data flows through SAP.
+         */
         onViewInvoice: function () {
-            var sVimDocId = this.getView().getModel("detail").getProperty("/VimDocumentId");
+            var oDetailModel = this.getView().getModel("detail");
+            var sVimDocId = oDetailModel.getProperty("/VimDocumentId");
+
             if (!sVimDocId) {
                 MessageToast.show(this._getText("msgNoInvoiceImage"));
                 return;
             }
 
-            var sUrl = "/sap/opu/odata/sap/ZEDM_VIM_GR_CREATE_SRV/VimImageSet('" +
-                encodeURIComponent(sVimDocId) + "')/$value";
-            sap.m.URLHelper.redirect(sUrl, true);
+            var oView = this.getView();
+            oView.setBusy(true);
+
+            var oModel = this.getView().getModel();
+
+            // Static action — called on the entity set, not an instance
+            var oActionBinding = oModel.bindContext(
+                "/VIMDocument/com.sap.gateway.srvd.z_zfc_vim_doc_srv.v0001.getAttachment(...)"
+            );
+
+            // Set the action parameter
+            oActionBinding.setParameter("VimDocumentId", sVimDocId);
+
+            oActionBinding.execute().then(function () {
+                var oResult = oActionBinding.getBoundContext().getObject();
+
+                oView.setBusy(false);
+
+                if (!oResult || !oResult.ArchiveUrl) {
+                    MessageToast.show(this._getText("msgAttachmentNotFound"));
+                    return;
+                }
+
+                window.open(oResult.ArchiveUrl, "_blank");
+
+            }.bind(this)).catch(function (oError) {
+                oView.setBusy(false);
+                MessageBox.error(this._getText("msgAttachmentError"));
+            }.bind(this));
         },
 
         onCreateGoodsReceipt: function () {
