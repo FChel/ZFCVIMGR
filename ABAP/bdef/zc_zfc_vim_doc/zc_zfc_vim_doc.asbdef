@@ -14,6 +14,7 @@ use etag
   use action submitGR;
   use action reject;
   use action calculateBalance;
+  use action getAttachment;
 
   // Only the true composition child is part of the behavior
   use association _Items { create; }

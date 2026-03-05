@@ -23,6 +23,9 @@ etag master LastChangedAt
   action reject result [1] $self;
   action calculateBalance result [1] $self;
 
+  // Attachment retrieval
+  static action getAttachment parameter ZS_ZFC_VIM_ATTACHMENT_PARAM result [1] ZS_ZFC_VIM_ATTACHMENT;
+
   // Determinations - auto-populate fields
   determination determineVendorName on modify { field Vendor; }
   determination determinePaymentTermsText on modify { field PaymentTerms; }

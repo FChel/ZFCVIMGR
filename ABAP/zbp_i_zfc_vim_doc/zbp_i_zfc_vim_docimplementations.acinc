@@ -62,6 +62,9 @@ CLASS lhc_vimdocument DEFINITION INHERITING FROM cl_abap_behavior_handler.
       IMPORTING iv_purchase_order TYPE ebeln
       RETURNING VALUE(rt_result)  TYPE tt_gr_item.
 
+    METHODS get_attachment FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~getattachment RESULT result.
+
 ENDCLASS.
 
 CLASS lhc_vimdocument IMPLEMENTATION.
@@ -542,6 +545,137 @@ CLASS lhc_vimdocument IMPLEMENTATION.
     IF requested_authorizations-%delete = if_abap_behv=>mk-on.
       result-%delete = if_abap_behv=>auth-allowed.
     ENDIF.
+  ENDMETHOD.
+
+
+  METHOD get_attachment.
+*----------------------------------------------------------------------*
+* ACTION:     getAttachment
+* PURPOSE:    Resolves the direct archive URL for the VIM document's
+*             invoice/credit memo image stored in OpenText, so the
+*             UI5 frontend can open it directly in the browser.
+*
+* APPROACH:
+*   Uses the standard SAP ArchiveLink APIs rather than manually
+*   reading binary content. The archive server is directly accessible
+*   from the client browser, so we simply resolve the URL and return
+*   it — no binary data flows through the application server.
+*
+* FLOW:
+*   1. Read the VIM document to get the VimDocumentId
+*   2. Build the ArchiveLink object ID
+*   3. Call ARCHIV_GET_CONNECTIONS to get archive connection details
+*   4. Call SCMS_HTTP_INFO to get the MIME type
+*   5. Call SCMS_AO_URL_READ to get the direct archive URL
+*   6. Read filename from file attributes (TOAAT)
+*   7. Return the URL, MIME type and filename to the frontend
+*----------------------------------------------------------------------*
+
+    LOOP AT keys INTO DATA(ls_key).
+
+      DATA: lv_vim_doc_id      TYPE /opt/docid,
+            lv_object_id       TYPE saeobjid,
+            lt_connections     TYPE STANDARD TABLE OF toav0,
+            ls_connection      TYPE toav0,
+            lt_file_attributes TYPE STANDARD TABLE OF toaat,
+            ls_file_attributes TYPE toaat,
+            lv_mime_type       TYPE w3conttype,
+            lv_url             TYPE saeuri,
+            lv_filename        TYPE char255.
+
+      CLEAR: lt_connections, lt_file_attributes,
+             lv_mime_type, lv_url, lv_filename.
+
+      " Get the VIM document ID from the action parameter
+      lv_vim_doc_id = ls_key-%param-VimDocumentId.
+      lv_object_id  = lv_vim_doc_id.
+
+      " Get the ArchiveLink connections for this object
+      CALL FUNCTION 'ARCHIV_GET_CONNECTIONS'
+        EXPORTING
+          object_id       = lv_object_id
+        TABLES
+          connections     = lt_connections
+          file_attributes = lt_file_attributes
+        EXCEPTIONS
+          nothing_found   = 1
+          OTHERS          = 2.
+
+      IF sy-subrc <> 0 OR lt_connections IS INITIAL.
+        APPEND VALUE #(
+          %cid   = ls_key-%cid
+          %param = VALUE #(
+            ArchiveUrl = ''
+            MimeType   = ''
+            Filename   = ''
+          )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      READ TABLE lt_connections INTO ls_connection INDEX 1.
+
+      " Get the MIME type
+      CALL FUNCTION 'SCMS_HTTP_INFO'
+        EXPORTING
+          crep_id               = ls_connection-archiv_id
+          doc_id                = ls_connection-arc_doc_id
+        IMPORTING
+          data_mimetype         = lv_mime_type
+        EXCEPTIONS
+          OTHERS                = 9.
+
+      IF sy-subrc <> 0.
+        lv_mime_type = 'application/pdf'.
+      ENDIF.
+
+      " Get the direct archive URL
+      CALL FUNCTION 'SCMS_AO_URL_READ'
+        EXPORTING
+          arc_id        = ls_connection-archiv_id
+          doc_id        = ls_connection-arc_doc_id
+          document_type = lv_mime_type
+          pdf_mode      = space
+        IMPORTING
+          url           = lv_url
+        EXCEPTIONS
+          error         = 1
+          OTHERS        = 2.
+
+      IF sy-subrc <> 0.
+        APPEND VALUE #(
+          %cid   = ls_key-%cid
+          %param = VALUE #(
+            ArchiveUrl = ''
+            MimeType   = ''
+            Filename   = ''
+          )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " Get filename from file attributes
+      READ TABLE lt_file_attributes INTO ls_file_attributes
+        WITH KEY arc_doc_id = ls_connection-arc_doc_id.
+
+      IF sy-subrc = 0 AND ls_file_attributes-filename IS NOT INITIAL.
+        lv_filename = ls_file_attributes-filename.
+      ELSE.
+        lv_filename = |invoice_{ lv_vim_doc_id }.pdf|.
+      ENDIF.
+
+      " Return the result
+      APPEND VALUE #(
+        %cid   = ls_key-%cid
+        %param = VALUE #(
+          ArchiveUrl = lv_url
+          MimeType   = lv_mime_type
+          Filename   = lv_filename
+        )
+      ) TO result.
+
+    ENDLOOP.
+
   ENDMETHOD.
 
 ENDCLASS.
