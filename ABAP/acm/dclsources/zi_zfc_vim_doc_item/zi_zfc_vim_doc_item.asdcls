@@ -1,8 +1,0 @@
-@EndUserText.label: 'Access Control for VIM Document Item'
-@MappingRole: true
-define role ZI_ZFC_VIM_DOC_ITEM {
-  grant select on ZI_ZFC_VIM_DOC_ITEM
-    where 
-      // Inherit from parent - if user can see header, they can see items
-      inheriting conditions from entity ZI_ZFC_VIM_DOC;
-}
