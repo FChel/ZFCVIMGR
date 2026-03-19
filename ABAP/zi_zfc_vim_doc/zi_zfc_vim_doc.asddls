@@ -28,6 +28,10 @@ define root view entity ZI_ZFC_VIM_DOC
 
   association [0..*] to ZC_ZFC_VIM_PO_ITEM_CE   as _POItems
     on _POItems.PurchaseOrder = $projection.PurchaseOrder
+    
+association [0..1] to /opt/vim_t101t as _StatusText
+  on  _StatusText.statusid  = $projection.ProcessStatus
+  and _StatusText.spras     = $session.system_language    
 
 {
   key docid                            as VimDocumentId,
@@ -78,18 +82,28 @@ define root view entity ZI_ZFC_VIM_DOC
 
       archiv_id                        as ArchiveId,
       arc_doc_id                       as ArchiveDocId,
-
-      case status
-        when '06' then 1
-        when '08' then 1
-        when '10' then 1
-        when '15' then 3
-        when '16' then 1
-        when '18' then 1
-        when '02' then 2
-        when '03' then 2
-        else 0
-      end                              as StatusCriticality,
+      
+      
+      _StatusText.objtxt as ProcessStatusText,
+      
+        case status
+          when '15' then 1      // Posted
+          when '12' then 1      // Approval Complete
+          when '31' then 1      // Posted Approval - Unblocked
+          when '32' then 1      // Posted Approval - Blocked
+          when '02' then 2      // Indexed
+          when '03' then 2      // Sent for Doc Creation
+          when '11' then 2      // Awaiting Approval
+          when '13' then 2      // Rejected by Approver
+          when '27' then 2      // Sent Back
+          when '99' then 2      // Move Forward To Workflow
+          when '10' then 3      // Obsolete
+          when '16' then 3      // Deleted
+          when '17' then 3      // Cancelled
+          when '18' then 3      // Blocked
+          else 5                // Everything else = Blue
+        end as StatusCriticality,      
+       
 
       index_user                       as CreatedBy,
 

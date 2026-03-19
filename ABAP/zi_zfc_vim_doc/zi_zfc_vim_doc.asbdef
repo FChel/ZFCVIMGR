@@ -1,0 +1,106 @@
+managed implementation in class zbp_i_zfc_vim_doc unique;
+strict ( 2 );
+
+define behavior for ZI_ZFC_VIM_DOC alias VimDocument
+persistent table /opt/vim_1head
+lock master
+authorization master ( global )
+etag master LastChangedAt
+{
+  // CRUD Operations
+  create;
+  update;
+  delete;
+
+  // Field characteristics
+  field ( readonly ) VimDocumentId, CreatedBy, CreatedAt, LastChangedBy, LastChangedAt,
+                     StatusCriticality, IsDueDatePassed, PaymentTermsText, ProcessStatusText;
+  field ( mandatory ) PurchaseOrder, Vendor, Currency, NetAmount, TaxAmount, GrossAmount;
+
+  // Actions for UI buttons
+  action validate result [1] $self;
+  action submitGR result [1] $self;
+  action reject result [1] $self;
+  action calculateBalance result [1] $self;
+
+  // Attachment retrieval
+  static action getAttachment parameter ZS_ZFC_VIM_ATTACHMENT_PARAM result [1] ZS_ZFC_VIM_ATTACHMENT;
+
+  // Determinations - auto-populate fields
+  determination determineVendorName on modify { field Vendor; }
+  determination determinePaymentTermsText on modify { field PaymentTerms; }
+
+  // Validations - checks before save
+  validation validateStatus on save { field ProcessStatus; }
+  validation validateDuplicateGR on save { create; }
+  validation checkGRQuantity on save { field GrossAmount; }
+
+  // Composition for true children (persisted)
+  association _Items { create; }
+
+  // Mapping CDS fields to database table fields
+  mapping for /opt/vim_1head
+  {
+    VimDocumentId = docid;
+    EdiDocumentNumber = edi_docnum;
+    ProcessStatus = status;
+    CurrentProcessType = curr_proc_type;
+    InvoiceNumber = xblnr;
+    Vendor = lifnr;
+    VendorName = vend_name;
+    PurchaseOrder = ebeln;
+    Currency = waers;
+    NetAmount = net_amount;
+    TaxAmount = vat_amount;
+    GrossAmount = gross_amount;
+    ReceivedDate = zz_received_date;
+    PaymentTerms = pymnt_terms;
+    CreditMemo = credit_memo;
+    DueDate = due_date;
+    CompanyCode = bukrs;
+    FiscalYear = gjahr;
+    AccountingDocument = belnr;
+    PostingDate = budat;
+    DocumentDate = bldat;
+    ArchiveId = archiv_id;
+    ArchiveDocId = arc_doc_id;
+    CreatedBy = index_user;
+    CreatedAt = index_date;
+    LastChangedBy = change_user;
+    LastChangedAt = change_date;
+  }
+}
+
+define behavior for ZI_ZFC_VIM_DOC_ITEM alias VimDocumentItem
+persistent table /opt/vim_1item
+lock dependent by _VimDocument
+authorization dependent by _VimDocument
+etag dependent by _VimDocument
+{
+  // CRUD Operations
+  update;
+  delete;
+
+  // Field characteristics
+  field ( readonly : update ) VimDocumentId, VimDocumentItem;
+  field ( readonly ) Currency, Amount, CompanyCode, UnitISOCode;
+  field ( mandatory ) Quantity, PurchaseOrder, PurchaseOrderItem;
+
+  // Parent association
+  association _VimDocument;
+
+  // Mapping CDS fields to database table fields
+  mapping for /opt/vim_1item
+  {
+    VimDocumentId = docid;
+    VimDocumentItem = itemid;
+    PurchaseOrder = ebeln;
+    PurchaseOrderItem = ebelp;
+    Material = matnr;
+    Description = maktx;
+    Quantity = menge;
+    TaxCode = mwskz;
+    GLAccount = hkont;
+    CostCenter = kostl;
+  }
+}

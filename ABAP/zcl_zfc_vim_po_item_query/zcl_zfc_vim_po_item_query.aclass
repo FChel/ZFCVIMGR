@@ -15,12 +15,16 @@ CLASS zcl_zfc_vim_po_item_query IMPLEMENTATION.
 
   METHOD if_rap_query_provider~select.
 
+    DATA lt_result TYPE STANDARD TABLE OF zc_zfc_vim_po_item_ce.
+
     " ---------------------------------------------------------------
     " 1. Extract filter conditions
     " ---------------------------------------------------------------
     TRY.
         DATA(lt_filter) = io_request->get_filter( )->get_as_ranges( ).
       CATCH cx_rap_query_filter_no_range.
+        io_response->set_total_number_of_records( 0 ).
+        io_response->set_data( lt_result ).
         RETURN.
     ENDTRY.
 
@@ -34,6 +38,32 @@ CLASS zcl_zfc_vim_po_item_query IMPLEMENTATION.
     ENDLOOP.
 
     IF lr_purchase_order IS INITIAL.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      RETURN.
+    ENDIF.
+
+    " ---------------------------------------------------------------
+    " 1a. GUARD: Verify PO exists before querying EKPO/EKBE
+    " ---------------------------------------------------------------
+    DATA lv_po_value TYPE ebeln.
+    READ TABLE lr_purchase_order INDEX 1 INTO DATA(ls_po_range).
+    IF sy-subrc = 0.
+      lv_po_value = ls_po_range-low.
+    ENDIF.
+
+    IF lv_po_value IS INITIAL.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      RETURN.
+    ENDIF.
+
+    SELECT SINGLE ebeln FROM ekko
+      WHERE ebeln = @lv_po_value
+      INTO @DATA(lv_po_exists).
+    IF sy-subrc <> 0.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
       RETURN.
     ENDIF.
 
@@ -66,6 +96,8 @@ CLASS zcl_zfc_vim_po_item_query IMPLEMENTATION.
       INTO TABLE @DATA(lt_po_items).
 
     IF lt_po_items IS INITIAL.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
       RETURN.
     ENDIF.
 
@@ -94,13 +126,10 @@ CLASS zcl_zfc_vim_po_item_query IMPLEMENTATION.
     " ---------------------------------------------------------------
     " 4. Build result set
     " ---------------------------------------------------------------
-    DATA lt_result TYPE STANDARD TABLE OF zc_zfc_vim_po_item_ce.
-
     LOOP AT lt_po_items INTO DATA(ls_po_item).
       APPEND INITIAL LINE TO lt_result ASSIGNING FIELD-SYMBOL(<fs>).
       MOVE-CORRESPONDING ls_po_item TO <fs>.
 
-      " Calculate remaining = ordered - received + reversed
       DATA(lv_received) = VALUE menge_d( ).
       DATA(lv_reversed) = VALUE menge_d( ).
 

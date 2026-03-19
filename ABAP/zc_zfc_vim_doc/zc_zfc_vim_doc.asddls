@@ -39,6 +39,9 @@ define root view entity ZC_ZFC_VIM_DOC
       @EndUserText.label: 'Status'
       @Search.defaultSearchElement: true
       ProcessStatus,
+      
+      @EndUserText.label: 'Status Text'
+      ProcessStatusText,      
 
       @EndUserText.label: 'Status Criticality'
       StatusCriticality,

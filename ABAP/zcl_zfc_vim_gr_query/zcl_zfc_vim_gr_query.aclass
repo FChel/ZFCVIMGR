@@ -17,12 +17,16 @@ class zcl_zfc_vim_gr_query implementation.
 
   method if_rap_query_provider~select.
 
+    data lt_result type standard table of zc_zfc_vim_gr_ce.
+
     " ---------------------------------------------------------------
     " 1. Extract filter conditions from the framework
     " ---------------------------------------------------------------
     try.
         data(lt_filter) = io_request->get_filter( )->get_as_ranges( ).
       catch cx_rap_query_filter_no_range.
+        io_response->set_total_number_of_records( 0 ).
+        io_response->set_data( lt_result ).
         return.
     endtry.
 
@@ -40,6 +44,32 @@ class zcl_zfc_vim_gr_query implementation.
 
     " No PO filter = nothing to return
     if lr_purchase_order is initial.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      return.
+    endif.
+
+    " ---------------------------------------------------------------
+    " 1a. GUARD: Verify PO exists before querying EKBE
+    " ---------------------------------------------------------------
+    data lv_po_value type ebeln.
+    read table lr_purchase_order index 1 into data(ls_po_range).
+    if sy-subrc = 0.
+      lv_po_value = ls_po_range-low.
+    endif.
+
+    if lv_po_value is initial.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      return.
+    endif.
+
+    select single ebeln from ekko
+      where ebeln = @lv_po_value
+      into @data(lv_po_exists).
+    if sy-subrc <> 0.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
       return.
     endif.
 
@@ -77,13 +107,14 @@ class zcl_zfc_vim_gr_query implementation.
       into table @data(lt_raw).
 
     if lt_raw is initial.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
       return.
     endif.
 
     " ---------------------------------------------------------------
     " 3. Get material document items for unit/storage location
     " ---------------------------------------------------------------
-    " Collect unique mat doc keys
     types: begin of ty_matdoc_key,
              belnr type mblnr,
              gjahr type gjahr,
@@ -100,7 +131,6 @@ class zcl_zfc_vim_gr_query implementation.
         into table lt_matdoc_keys.
     endloop.
 
-    " Read material document items for unit and storage location
     if lt_matdoc_keys is not initial.
       select mblnr, mjahr, zeile, meins, lgort
         from matdoc
@@ -114,7 +144,15 @@ class zcl_zfc_vim_gr_query implementation.
     " ---------------------------------------------------------------
     " 4. Build result set with calculated fields
     " ---------------------------------------------------------------
-    data lt_result type standard table of zc_zfc_vim_gr_ce.
+
+    " Safe-read VIM doc ID
+    data lv_vim_doc_id type /opt/docid.
+    if lr_vim_doc_id is not initial.
+      read table lr_vim_doc_id index 1 into data(ls_vim_range).
+      if sy-subrc = 0.
+        lv_vim_doc_id = ls_vim_range-low.
+      endif.
+    endif.
 
     loop at lt_raw into data(ls_raw).
       append initial line to lt_result assigning field-symbol(<fs>).
@@ -142,7 +180,7 @@ class zcl_zfc_vim_gr_query implementation.
       " Available for matching check
       if ls_raw-movementtype = '101'
         and ls_raw-debitcreditindicator = 'S'
-        and ls_raw-deliverynote is initial.        " Not reversed
+        and ls_raw-deliverynote is initial.
         <fs>-isavailableformatching = abap_true.
         <fs>-remainingquantity      = ls_raw-quantity.
       endif.
@@ -152,9 +190,9 @@ class zcl_zfc_vim_gr_query implementation.
         <fs>-unitprice = ls_raw-amount / ls_raw-quantity.
       endif.
 
-      " Set VimDocumentId if filter was provided
-      if lr_vim_doc_id is not initial.
-        <fs>-vimdocumentid = lr_vim_doc_id[ 1 ]-low.
+      " Set VimDocumentId from filter
+      if lv_vim_doc_id is not initial.
+        <fs>-vimdocumentid = lv_vim_doc_id.
       endif.
 
       " Header text from reference document
