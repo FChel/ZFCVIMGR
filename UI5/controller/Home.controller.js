@@ -1,26 +1,12 @@
 sap.ui.define([
     "sap/ui/core/mvc/Controller",
     "sap/m/MessageToast",
+    "sap/m/MessageBox",
     "sap/ui/model/json/JSONModel",
     "sap/ui/model/Filter",
     "sap/ui/model/FilterOperator",
-    "sap/m/Dialog",
-    "sap/m/List",
-    "sap/m/StandardListItem",
-    "sap/m/SearchField",
-    "sap/m/Bar",
-    "sap/m/Button",
-    "sap/m/VBox",
-    "sap/m/SegmentedButton",
-    "sap/m/SegmentedButtonItem",
-    "sap/m/Toolbar",
-    "sap/m/ToolbarSpacer",
-    "sap/m/Title",
-    "sap/m/BusyIndicator"
-], function (Controller, MessageToast, JSONModel, Filter, FilterOperator,
-             Dialog, List, StandardListItem, SearchField, Bar, Button,
-             VBox, SegmentedButton, SegmentedButtonItem, Toolbar, ToolbarSpacer,
-             Title, BusyIndicator) {
+    "sap/ui/core/Fragment"
+], function (Controller, MessageToast, MessageBox, JSONModel, Filter, FilterOperator, Fragment) {
     "use strict";
 
     return Controller.extend("zfc.finux.zfcvimgr.controller.Home", {
@@ -32,9 +18,6 @@ sap.ui.define([
             }
         },
 
-        /**
-         * Navigate to the detail page for the entered VIM Document ID.
-         */
         onOpenDocument: function () {
             var sDocId = this.getOwnerComponent().getModel("appView").getProperty("/vimDocId");
 
@@ -57,173 +40,151 @@ sap.ui.define([
         /*  Value Help Dialog                                           */
         /* ============================================================ */
 
-        /**
-         * Open the value help dialog for searching VIM documents.
-         */
         onValueHelpRequest: function () {
             var that = this;
 
             if (!this._oValueHelpDialog) {
-                // Results model
-                this._oVHModel = new JSONModel({
-                    results: [],
-                    busy: false,
-                    searchBy: "VimDocumentId"
-                });
-
-                // Search field
-                this._oVHSearchField = new SearchField({
-                    placeholder: this._getText("vhSearchPlaceholder"),
-                    search: function () { that._onVHSearch(); },
-                    width: "100%"
-                });
-
-                // Search-by toggle
-                this._oVHSegmented = new SegmentedButton({
-                    selectedKey: "VimDocumentId",
-                    selectionChange: function (oEvent) {
-                        that._oVHModel.setProperty("/searchBy", oEvent.getParameter("item").getKey());
-                        that._oVHSearchField.setPlaceholder(that._getVHPlaceholder(oEvent.getParameter("item").getKey()));
-                    },
-                    items: [
-                        new SegmentedButtonItem({ text: this._getText("vhByDocId"), key: "VimDocumentId" }),
-                        new SegmentedButtonItem({ text: this._getText("vhByPO"), key: "PurchaseOrder" }),
-                        new SegmentedButtonItem({ text: this._getText("vhByVendor"), key: "Vendor" })
+                var oColModel = new JSONModel({
+                    cols: [
+                        { label: this._getText("vhByDocId"), template: "VimDocumentId" },
+                        { label: this._getText("vhByPO"), template: "PurchaseOrder" },
+                        { label: this._getText("vhByVendor"), template: "Vendor" },
+                        { label: this._getText("vendorName"), template: "VendorName", width: "16rem" },
+                        { label: this._getText("processStatus"), template: "ProcessStatusText" },
+                        { label: this._getText("grossAmount"), template: "GrossAmount" }
                     ]
                 });
 
-                // Results list
-                this._oVHList = new List({
-                    noDataText: this._getText("vhNoResults"),
-                    mode: "SingleSelectMaster",
-                    selectionChange: function (oEvent) {
-                        that._onVHSelect(oEvent);
-                    },
-                    items: {
-                        path: "vhModel>/results",
-                        template: new StandardListItem({
-                            title: "{vhModel>VimDocumentId}",
-                            description: "{vhModel>VendorName}",
-                            info: "PO: {vhModel>PurchaseOrder}",
-                            infoState: "None"
-                        })
+                Fragment.load({
+                    id: this.getView().getId(),
+                    name: "zfc.finux.zfcvimgr.view.fragment.VimDocValueHelp",
+                    controller: this
+                }).then(function (oDialog) {
+                    that._oValueHelpDialog = oDialog;
+                    that.getView().addDependent(oDialog);
+
+                    oDialog.getTableAsync().then(function (oTable) {
+                        oTable.setModel(oColModel, "columns");
+                        oTable.setBusyIndicatorDelay(1);
+                        oTable.setEnableBusyIndicator(true);
+                    });
+
+                    // Hide the 'Show Advanced Search' toggle
+                    var oFilterBar = oDialog.getFilterBar();
+                    if (oFilterBar._oHideShowButton) {
+                        oFilterBar._oHideShowButton.setVisible(false);
                     }
-                });
-                this._oVHList.setModel(this._oVHModel, "vhModel");
 
-                this._oValueHelpDialog = new Dialog({
-                    title: this._getText("vhTitle"),
-                    contentWidth: "36rem",
-                    contentHeight: "24rem",
-                    stretch: sap.ui.Device.system.phone,
-                    subHeader: new Toolbar({
-                        content: [
-                            this._oVHSegmented
-                        ]
-                    }),
-                    content: [
-                        new VBox({
-                            items: [
-                                this._oVHSearchField,
-                                this._oVHList
-                            ]
-                        }).addStyleClass("sapUiSmallMargin")
-                    ],
-                    beginButton: new Button({
-                        text: this._getText("cancelButton"),
-                        press: function () {
-                            that._oValueHelpDialog.close();
-                        }
-                    })
+                    oDialog.open();
                 });
-
-                this.getView().addDependent(this._oValueHelpDialog);
+            } else {
+                this._oValueHelpDialog.setTokens([]);
+                this._oValueHelpDialog.open();
             }
-
-            // Reset
-            this._oVHModel.setProperty("/results", []);
-            this._oVHSearchField.setValue("");
-            this._oValueHelpDialog.open();
         },
 
-        /**
-         * Execute search in value help dialog.
-         */
-        _onVHSearch: function () {
-            var sQuery = this._oVHSearchField.getValue().trim();
-            if (!sQuery) {
-                MessageToast.show(this._getText("vhEnterSearch"));
+        onVHFilterBarSearch: function (oEvent) {
+            var aSelectionSet = oEvent.getParameter("selectionSet");
+
+            // If triggered from Input submit (Enter key), get controls from FilterBar
+            if (!aSelectionSet) {
+                var oFilterBar = this.byId("vhFilterBar");
+                if (oFilterBar) {
+                    oFilterBar.search();
+                    return;
+                }
+            }
+
+            var aFilters = [];
+
+            aSelectionSet.forEach(function (oControl) {
+                var sValue = oControl.getValue().trim();
+                if (sValue) {
+                    aFilters.push(
+                        new Filter(oControl.getName(), FilterOperator.EQ, sValue)
+                    );
+                }
+            });
+
+            if (aFilters.length === 0) {
+                MessageBox.information(this._getText("vhEnterSearch"));
                 return;
             }
 
-            var sField = this._oVHModel.getProperty("/searchBy");
+            var oFilter = new Filter({ filters: aFilters, and: true });
             var that = this;
-
-            // Pad VIM doc IDs with leading zeros
-            if (sField === "VimDocumentId" && /^\d+$/.test(sQuery) && sQuery.length < 10) {
-                sQuery = sQuery.padStart(10, "0");
-            }
-
-            this._oVHModel.setProperty("/busy", true);
-            this._oVHList.setBusy(true);
-
             var oDataModel = this.getOwnerComponent().getModel();
-            var oListBinding = oDataModel.bindList("/VIMDocument", undefined, undefined, [
-                new Filter(sField, FilterOperator.Contains, sQuery)
-            ], {
-                $select: "VimDocumentId,PurchaseOrder,Vendor,VendorName,GrossAmount,Currency,ProcessStatus",
-                $top: 50
+
+            var oListBinding = oDataModel.bindList(
+                "/VIMDocumentVH", undefined, undefined,
+                [oFilter],
+                {
+                    $select: "VimDocumentId,PurchaseOrder,Vendor," +
+                        "VendorName,GrossAmount,Currency," +
+                        "ProcessStatus,ProcessStatusText"
+                }
+            );
+
+            this._oValueHelpDialog.getTableAsync().then(function (oTable) {
+                oTable.setBusy(true);
             });
 
             oListBinding.requestContexts(0, 50).then(function (aContexts) {
                 var aResults = aContexts.map(function (oCtx) {
                     return oCtx.getObject();
                 });
-                that._oVHModel.setProperty("/results", aResults);
-                that._oVHList.setBusy(false);
-                that._oVHModel.setProperty("/busy", false);
+
+                that._oValueHelpDialog.getTableAsync().then(function (oTable) {
+                    oTable.setModel(new JSONModel(aResults));
+                    if (oTable.bindRows) {
+                        oTable.bindRows("/");
+                    } else if (oTable.bindItems) {
+                        oTable.bindItems({
+                            path: "/",
+                            template: oTable.getBindingInfo("items")
+                                ? oTable.getBindingInfo("items").template
+                                : null
+                        });
+                    }
+                    oTable.setBusy(false);
+                });
 
                 if (aResults.length === 0) {
                     MessageToast.show(that._getText("vhNoResults"));
                 }
             }).catch(function () {
-                that._oVHList.setBusy(false);
-                that._oVHModel.setProperty("/busy", false);
+                that._oValueHelpDialog.getTableAsync().then(function (oTable) {
+                    oTable.setBusy(false);
+                });
                 MessageToast.show(that._getText("vhSearchError"));
             });
         },
 
-        /**
-         * Handle value help selection — set the doc ID and close.
-         */
-        _onVHSelect: function (oEvent) {
-            var oItem = oEvent.getParameter("listItem");
-            var oCtx = oItem.getBindingContext("vhModel");
-            var sDocId = oCtx.getProperty("VimDocumentId");
+        onVHOkPress: function (oEvent) {
+            var aTokens = oEvent.getParameter("tokens");
+            if (aTokens && aTokens.length > 0) {
+                var sDocId = aTokens[0].getKey();
+                this.getOwnerComponent().getModel("appView").setProperty("/vimDocId", sDocId);
+                this._oValueHelpDialog.close();
 
-            this.getOwnerComponent().getModel("appView").setProperty("/vimDocId", sDocId);
-            this._oValueHelpDialog.close();
-
-            // Navigate directly
-            this.getOwnerComponent().getRouter().navTo("detail", {
-                VimDocumentId: encodeURIComponent(sDocId)
-            });
-        },
-
-        /**
-         * Get placeholder text for the search field based on selected filter.
-         */
-        _getVHPlaceholder: function (sKey) {
-            switch (sKey) {
-                case "PurchaseOrder": return this._getText("vhPlaceholderPO");
-                case "Vendor": return this._getText("vhPlaceholderVendor");
-                default: return this._getText("vhPlaceholderDocId");
+                this.getOwnerComponent().getRouter().navTo("detail", {
+                    VimDocumentId: encodeURIComponent(sDocId)
+                });
             }
         },
 
-        /**
-         * Helper to get i18n text.
-         */
+        onVHCancelPress: function () {
+            this._oValueHelpDialog.close();
+        },
+
+        onVHAfterClose: function () {
+            // Clean up if needed
+        },
+
+        /* ============================================================ */
+        /*  Helpers                                                     */
+        /* ============================================================ */
+
         _getText: function (sKey, aArgs) {
             return this.getOwnerComponent().getModel("i18n")
                 .getResourceBundle().getText(sKey, aArgs);

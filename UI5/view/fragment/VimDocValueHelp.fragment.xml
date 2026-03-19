@@ -1,0 +1,67 @@
+<core:FragmentDefinition
+    xmlns="sap.ui.comp.valuehelpdialog"
+    xmlns:m="sap.m"
+    xmlns:fb="sap.ui.comp.filterbar"
+    xmlns:core="sap.ui.core">
+    <ValueHelpDialog
+        title="{i18n>vhTitle}"
+        ok=".onVHOkPress"
+        cancel=".onVHCancelPress"
+        afterClose=".onVHAfterClose"
+        supportMultiselect="false"
+        supportRanges="false"
+        supportRangesOnly="false"
+        key="VimDocumentId"
+        descriptionKey="VendorName">
+        <filterBar>
+            <fb:FilterBar
+                id="vhFilterBar"
+                advancedMode="true"
+                filterBarExpanded="true"
+                search=".onVHFilterBarSearch">
+                <fb:filterGroupItems>
+                    <fb:FilterGroupItem
+                        groupName="__$INTERNAL$"
+                        label="{i18n>vhByDocId}"
+                        name="VimDocumentId"
+                        visibleInFilterBar="true">
+                        <fb:control>
+                            <m:Input name="VimDocumentId"
+                                submit=".onVHFilterBarSearch" />
+                        </fb:control>
+                    </fb:FilterGroupItem>
+                    <fb:FilterGroupItem
+                        groupName="__$INTERNAL$"
+                        label="{i18n>vhByPO}"
+                        name="PurchaseOrder"
+                        visibleInFilterBar="true">
+                        <fb:control>
+                            <m:Input name="PurchaseOrder"
+                                submit=".onVHFilterBarSearch" />
+                        </fb:control>
+                    </fb:FilterGroupItem>
+                    <fb:FilterGroupItem
+                        groupName="__$INTERNAL$"
+                        label="{i18n>vhByVendor}"
+                        name="Vendor"
+                        visibleInFilterBar="true">
+                        <fb:control>
+                            <m:Input name="Vendor"
+                                submit=".onVHFilterBarSearch" />
+                        </fb:control>
+                    </fb:FilterGroupItem>
+					<fb:FilterGroupItem
+					    groupName="__$INTERNAL$"
+					    label="{i18n>vendorName}"
+					    name="VendorName"
+					    visibleInFilterBar="true">
+					    <fb:control>
+					        <m:Input name="VendorName"
+					            submit=".onVHFilterBarSearch" />
+					    </fb:control>
+					</fb:FilterGroupItem>                    
+                </fb:filterGroupItems>
+            </fb:FilterBar>
+        </filterBar>
+    </ValueHelpDialog>
+</core:FragmentDefinition>

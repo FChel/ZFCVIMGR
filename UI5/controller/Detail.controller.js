@@ -111,8 +111,8 @@ sap.ui.define([
                 oDetailModel.setProperty("/Vendor", oData.Vendor);
                 oDetailModel.setProperty("/VendorName", oData.VendorName);
                 oDetailModel.setProperty("/InvoiceNumber", oData.InvoiceNumber);
-                oDetailModel.setProperty("/ProcessStatus", oData.ProcessStatus);
-                oDetailModel.setProperty("/ProcessStatusFormatted", this._formatStatus(oData.ProcessStatus));
+                oDetailModel.setProperty("/ProcessStatus", oData.ProcessStatus);                                                
+                oDetailModel.setProperty("/ProcessStatusFormatted", oData.ProcessStatusText || oData.ProcessStatus);
                 oDetailModel.setProperty("/StatusIcon", this._getStatusIcon(oData.StatusCriticality));
                 oDetailModel.setProperty("/StatusCriticality", oData.StatusCriticality);
                 oDetailModel.setProperty("/NetAmount", parseFloat(oData.NetAmount) || 0);
@@ -150,9 +150,15 @@ sap.ui.define([
                 oDetailModel.setProperty("/VimItemsCount", String(aItems.length));
                 oDetailModel.setProperty("/TotalGRCount", aGRs.length);
 
+                // Determine if document is actionable                
+                var aActionableStatuses = ["02", "03", "11", "27", "99"];
+                var bActionable = aActionableStatuses.indexOf(oData.ProcessStatus) >= 0;
+                oDetailModel.setProperty("/IsActionable", bActionable);                
+                
+                
                 // Update FLP shell title based on document type
                 this._updateShellTitle(oData.CreditMemo === "X");
-
+                             
                 // Auto-select GRs then calculate balance
                 oDetailModel.setProperty("/busy", false);
 
@@ -168,7 +174,8 @@ sap.ui.define([
         },
 
         _handleDocumentNotFound: function () {
-            MessageBox.error(this._getText("msgDocumentNotFound"), {
+            var sDocId = this._sVimDocumentId || "";
+            MessageBox.error(this._getText("msgDocumentNotFound", [sDocId]), {
                 onClose: function () {
                     this.onNavBack();
                 }.bind(this)
@@ -266,8 +273,7 @@ sap.ui.define([
             // Update selection count info
             var iTotalGR = oDetailModel.getProperty("/TotalGRCount") || 0;
             oDetailModel.setProperty("/SelectedGRCount", iSelectedCount);
-            oDetailModel.setProperty("/SelectionInfo",
-                iSelectedCount + " of " + iTotalGR + " selected");
+            oDetailModel.setProperty("/SelectionInfo", iSelectedCount + " selected");
 
             oDetailModel.setProperty("/Balance", {
                 NetAmount: fSelectedNet,
@@ -564,7 +570,7 @@ sap.ui.define([
             return this.getOwnerComponent().getModel("i18n")
                 .getResourceBundle().getText(sKey, aArgs);
         },
-
+               
         _formatStatus: function (sStatus) {
             if (!sStatus) { return ""; }
             var mStatuses = {

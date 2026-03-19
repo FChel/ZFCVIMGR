@@ -55,10 +55,10 @@
                         <ObjectAttribute title="{i18n>invoiceNumber}" text="{detail>/InvoiceNumber}" />
                         <ObjectStatus
                             title="{i18n>processStatus}"
-                            text="{detail>/ProcessStatusFormatted}"
-                            state="{= ${detail>/StatusCriticality} === 1 ? 'Success' : ${detail>/StatusCriticality} === 2 ? 'Warning' : ${detail>/StatusCriticality} === 3 ? 'Error' : 'None' }"
+                            text="{detail>/ProcessStatusFormatted}"                            
+                            state="{ path: 'detail>/StatusCriticality', formatter: '.formatter.formatStatusState' }"
                             icon="{detail>/StatusIcon}"
-                            class="sapUiTinyMarginTop" />
+                             />
                     </l:VerticalLayout>
 
                     <!-- Column 2: PO + Vendor -->
@@ -77,7 +77,7 @@
                     <l:VerticalLayout class="vimHeaderAmount">
                         <ObjectNumber
                             number="{ parts: [{path: 'detail>/GrossAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
-                            unit="{detail>/Currency}"
+                            unit="{detail>/Currency}"                            
                             emphasized="true" />
                     </l:VerticalLayout>
                 </uxap:headerContent>
@@ -94,15 +94,12 @@
                         titleUppercase="false">
                         <uxap:subSections>
                             <uxap:ObjectPageSubSection>
-                                <uxap:actions>
-                                    <Button
-                                        text="{i18n>createGoodsReceiptButton}"
-                                        icon="sap-icon://add"
-                                        type="Emphasized"
-                                        press=".onCreateGoodsReceipt"
-                                        visible="{= ${detail>/CreditMemo} !== 'X' }" />
-                                </uxap:actions>
+
                                 <uxap:blocks>
+
+
+                                
+                                
                                     <Table
                                         id="goodsReceiptsTable"
                                         items="{detail>/GoodsReceipts}"
@@ -113,6 +110,52 @@
                                         growing="true"
                                         growingThreshold="50"
                                         alternateRowColors="true">
+                                        
+											<headerToolbar>
+											    <OverflowToolbar>
+											        <Label text="{detail>/SelectionInfo}"
+											            visible="{= ${detail>/CreditMemo} !== 'X' }" />
+											
+											        <ToolbarSpacer />
+											
+													<ToolbarSeparator />
+											        <Label text="{i18n>balanceNetAmount}:"
+											            design="Bold"
+											             />
+											        <ObjectNumber
+											            number="{ parts: [{path: 'detail>/Balance/NetAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
+											            unit="{detail>/Currency}"
+											            emphasized="true"
+											             />
+											
+													<ToolbarSeparator />
+											        <Label text="{i18n>balanceGrossAmount}:"
+											            design="Bold"
+											             />
+											        <ObjectNumber
+											            number="{ parts: [{path: 'detail>/Balance/GrossAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
+											            unit="{detail>/Currency}"
+											            emphasized="true"
+											             />
+													
+													<ToolbarSeparator />
+											        <core:Icon
+											            src="{= ${detail>/Balance/IsBalanced} ? 'sap-icon://status-positive' : 'sap-icon://status-negative' }"
+											            color="{= ${detail>/Balance/IsBalanced} ? '#059669' : '#dc2626' }"
+											             />
+											
+													<ToolbarSeparator />
+											        <ToolbarSpacer />
+											
+											        <Button
+											            text="{i18n>createGoodsReceiptButton}"
+											            icon="sap-icon://add"
+											            type="Emphasized"
+											            press=".onCreateGoodsReceipt"
+											            visible="{= ${detail>/CreditMemo} !== 'X' }" />
+											    </OverflowToolbar>
+											</headerToolbar>
+                                   		                                        
                                         <columns>
                                             <Column>
                                                 <Text text="{i18n>grNumberYear}" />
@@ -305,51 +348,20 @@
         <!-- ============================================================ -->
         <footer>
             <OverflowToolbar class="vimFooterBar">
-                <HBox alignItems="Center" class="vimFooterBalance">
-                    <core:Icon src="sap-icon://hint"
-                        color="{= ${detail>/Balance/IsBalanced} ? '#059669' : '#dc2626' }"
-                        tooltip="{= ${detail>/CreditMemo} === 'X' ? ${i18n>balanceTooltipCreditMemo} : ${i18n>balanceTooltipInvoice} }"
-                        class="sapUiTinyMarginEnd" />
-                    <Label text="{detail>/SelectionInfo}"
-                        class="sapUiSmallMarginEnd vimSelectionInfo"
-                        visible="{= ${detail>/CreditMemo} !== 'X' }" />
-                    <Label text="{i18n>balanceNetAmount}:" class="sapUiTinyMarginEnd vimFooterLabel" />
-                    <ObjectNumber
-                        number="{ parts: [{path: 'detail>/Balance/NetAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
-                        unit="{detail>/Currency}"
-                        emphasized="true"
-                        class="sapUiSmallMarginEnd vimFooterNumber" />
-                    <Label text="{i18n>balanceTaxAmount}:" class="sapUiTinyMarginEnd vimFooterLabel" />
-                    <ObjectNumber
-                        number="{ parts: [{path: 'detail>/Balance/TaxAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
-                        unit="{detail>/Currency}"
-                        emphasized="true"
-                        class="sapUiSmallMarginEnd vimFooterNumber" />
-                    <Label text="{i18n>balanceGrossAmount}:" class="sapUiTinyMarginEnd vimFooterLabel" />
-                    <ObjectNumber
-                        number="{ parts: [{path: 'detail>/Balance/GrossAmount'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
-                        unit="{detail>/Currency}"
-                        emphasized="true"
-                        class="sapUiSmallMarginEnd vimFooterNumber" />
-                    <Label text="{i18n>balanceRemaining}:" class="sapUiTinyMarginEnd vimBalanceLabelBold" />
-                    <ObjectNumber
-                        number="{ parts: [{path: 'detail>/Balance/Remaining'}, {path: 'detail>/Currency'}], formatter: '.formatter.currencyValue' }"
-                        unit="{detail>/Currency}"
-                        state="{= ${detail>/Balance/IsBalanced} ? 'Success' : 'Error' }"
-                        emphasized="true"
-                        class="vimFooterRemaining" />
-                </HBox>
+
                 <ToolbarSpacer />
                 <Button
                     id="rejectButton"
                     text="{i18n>rejectButton}"
                     type="Reject"
-                    press=".onReject" />
+                    press=".onReject" 
+    				enabled="{detail>/IsActionable}" />
                 <Button
                     id="submitButton"
                     text="{i18n>submitButton}"
                     type="Emphasized"
-                    press=".onSubmit" />
+                    press=".onSubmit" 
+    				enabled="{detail>/IsActionable}" />
             </OverflowToolbar>
         </footer>
     </Page>

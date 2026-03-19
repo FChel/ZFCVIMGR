@@ -38,25 +38,6 @@ sap.ui.define([
         },
 
         /**
-         * Format a status code to a human-readable status text.
-         * @param {string} sStatus - The VIM process status code
-         * @returns {string} Human-readable status text
-         */
-        formatStatusText: function (sStatus) {
-            var mStatuses = {
-                "02": "Workflow",
-                "03": "Processing",
-                "06": "Rescan Complete",
-                "08": "Confirmed Duplicate",
-                "10": "Obsolete",
-                "15": "Posted",
-                "16": "Deleted",
-                "18": "Blocked"
-            };
-            return mStatuses[sStatus] || sStatus || "";
-        },
-
-        /**
          * Format the status criticality to a ValueState.
          * @param {number} iCriticality - The criticality value (0, 1, 2, 3)
          * @returns {string} The ValueState string
@@ -66,7 +47,8 @@ sap.ui.define([
                 case 1: return "Success";
                 case 2: return "Warning";
                 case 3: return "Error";
-                default: return "None";
+                case 5: return "Information";
+                default: return "Information";
             }
         },
 
