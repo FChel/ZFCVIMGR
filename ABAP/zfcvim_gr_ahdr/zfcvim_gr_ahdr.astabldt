@@ -1,0 +1,20 @@
+@EndUserText.label : 'VIM GR Matching - Audit Header'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #RESTRICTED
+define table zfcvim_gr_ahdr {
+
+  key client   : abap.clnt not null;
+  key vimdocid : /opt/docid not null;
+  key sequence : abap.int4 not null;
+  useraction   : abap.char(1);
+  actiondate   : abap.dats;
+  actiontime   : abap.tims;
+  actionuser   : syuname;
+  creditmemo   : abap_boolean;
+  @Semantics.amount.currencyCode : 'zfcvim_gr_ahdr.currency'
+  grossamount  : abap.curr(15,2);
+  currency     : waers;
+
+}

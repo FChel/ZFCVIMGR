@@ -1,0 +1,10 @@
+@EndUserText.label: 'Access Control for VIM Document'
+@MappingRole: true
+define role ZI_ZFC_VIM_DOC {
+  grant select on ZI_ZFC_VIM_DOC
+    where 
+      // Users can only see documents for company codes they're authorised for
+      // Using standard FI authorisation object F_BKPF_BUK
+      (CompanyCode) = aspect pfcg_auth(F_BKPF_BUK, BUKRS, ACTVT='03');
+      // ACTVT='03' = Display/Read
+}

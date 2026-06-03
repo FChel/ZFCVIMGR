@@ -1,0 +1,208 @@
+class ZCL_LFC_COST_CENTER_STRUC definition
+  public
+  final
+  create public .
+
+public section.
+*"* public components of class ZCL_LFC_COST_CENTER_STRUC
+*"* do not include other source files here!!!
+
+  data GT_KOSTL_STRUC type ZFSS_COST_CENTRE_STRUC_TT .
+  data GT_PARENTS_KEY type ZFSS_COST_CENTRE_STRUC_TT .
+
+  methods GET_STRUCTURE
+    exporting
+      !ET_KOSTL_STRUC type ZFSS_COST_CENTRE_STRUC_TT .
+  methods SET_PARENT_KEY
+    changing
+      !CS_KOSTL type ZSFSS_COST_CENTRE_STRUC .
+protected section.
+*"* protected components of class ZCL_LFC_COST_CENTER_STRUC
+*"* do not include other source files here!!!
+private section.
+*"* private components of class ZCL_LFC_COST_CENTER_STRUC
+*"* do not include other source files here!!!
+
+  data GT_PARENTS type ZFSS_COST_CENTRE_STRUC_TT .
+
+  methods SET_PARENT
+    changing
+      !CS_KOSTL type ZSFSS_COST_CENTRE_STRUC .
+ENDCLASS.
+
+
+
+CLASS ZCL_LFC_COST_CENTER_STRUC IMPLEMENTATION.
+
+
+METHOD get_structure.
+
+  DATA: lv_class               TYPE sethier-setclass.
+  DATA: lv_setid               TYPE sethier-setid.
+  DATA: lv_kokrs               TYPE kokrs.
+  DATA: lv_mandt               TYPE sy-mandt.
+  DATA: lv_replace_class       TYPE sethier-setclass.
+  DATA: lv_replace_table       TYPE sethier-fieldname.
+  DATA: lv_replace_field       TYPE sethier-tabname.
+  DATA: lv_replace_unit        TYPE sethier-kokrs.
+  DATA: lv_suffix              TYPE grpdynp-suffix.
+  DATA: lv_ol_level            TYPE setlev.
+  DATA: lv_overwrite           TYPE sy-datar.
+
+
+  DATA: lv_hlevel_next         TYPE setlev.
+  DATA: lv_hlevel_prev         TYPE setlev.
+  DATA: ls_master_data         TYPE grphp1.
+  DATA: ls_structure           TYPE grphp2.
+  DATA: ls_global_unique_info  TYPE flag.
+  DATA: ls_info                TYPE grphinfo.
+
+  DATA: ls_kostl TYPE zsfss_cost_centre_struc.
+  DATA: lt_kostl TYPE zfss_cost_centre_struc_tt.
+
+  DATA: ls_nodes               TYPE  grpobjects.
+  DATA: lt_nodes               TYPE  gseth_node_tab.
+  DATA: ls_values              TYPE  grpvalues.
+  DATA: lt_values              TYPE  gseth_val_tab.
+  DATA: lt_master_data         TYPE  gseth_md_tab.
+*  DATA: ls_master              TYPE  grpmdline.
+  DATA: lt_formula             TYPE  gseth_form_tab.
+  DATA: lt_field_info          TYPE  gseth_info_tab.
+  DATA: lt_node_list_overwrite TYPE  gseth_node_list.
+
+  lv_class = '0101'.
+  lv_setid = '0101CA01TOP'.
+  lv_kokrs = 'CA01'.
+  lv_mandt = sy-mandt.
+*  ls_master_data-showtxt = 'X'.
+  ls_structure-text	= 'X'.
+  ls_structure-exptolevel = '99'.
+  ls_structure-countlines = '00'.
+
+
+  CALL FUNCTION 'K_HIERARCHY_TABLES_READ'
+    EXPORTING
+      e_class                     = lv_class
+      e_setid                     = lv_setid
+      e_kokrs                     = lv_kokrs
+      e_mandt                     = lv_mandt
+      e_master_data               = ls_master_data
+      e_structure                 = ls_structure
+      e_replace_class             = lv_replace_class
+      e_replace_unit              = lv_replace_unit
+      e_replace_table             = lv_replace_table
+      e_replace_field             = lv_replace_field
+      e_suffix                    = lv_suffix
+      e_old_line_level            = lv_ol_level
+    IMPORTING
+      i_double_check              = ls_global_unique_info
+      i_master_data               = ls_master_data
+    TABLES
+      t_nodes                     = lt_nodes
+      t_values                    = lt_values
+      t_master_data               = lt_master_data
+      t_formula                   = lt_formula
+      t_field_info                = lt_field_info
+      t_node_list_overwrite       = lt_node_list_overwrite
+    CHANGING
+      c_info                      = ls_info
+      c_overwrite                 = lv_overwrite
+    EXCEPTIONS
+      no_controlling_area         = 1
+      no_chart_of_account         = 2
+      different_controlling_areas = 3
+      different_chart_of_accounts = 4
+      set_not_found               = 5
+      illegal_field_replacement   = 6
+      illegal_table_replacement   = 7
+      fm_raise                    = 8
+      convert_error               = 9
+      no_overwrite_standard_hier  = 10
+      no_bukrs_for_kokrs          = 11
+      OTHERS                      = 12.
+  IF sy-subrc <> 0.
+  ENDIF.
+
+** read all cost center
+*  SELECT * FROM csks INTO TABLE @data(lt_csks)
+*         WHERE kokrs = @lv_kokrs AND
+*                 datbi >= @sy-datum AND
+*                 datab <= @sy-datum AND
+*                 khinr <> @space.
+
+* read all texts for cost center
+  SELECT kostl, datbi, ltext FROM cskt INTO TABLE @data(lt_cskt)
+          WHERE spras = @sy-langu
+            AND kokrs = @lv_kokrs
+          ORDER BY kostl, datbi.
+*  SORT lt_cskt BY kostl datbi.
+
+*  LOOP AT lt_values INTO ls_values.
+*    READ TABLE lt_cskt INTO data(ls_cskt) WITH KEY kostl = ls_values-vfrom BINARY SEARCH.
+*    ls_master-name = ls_cskt-kostl.
+*    ls_master-text = ls_cskt-ltext.
+*    APPEND ls_master TO lt_master_data.
+*  ENDLOOP.
+
+
+* Fill the table with the structure of the KOSTL tree
+  LOOP AT lt_nodes INTO ls_nodes.
+    CLEAR: ls_kostl-parentshortname.
+    MOVE-CORRESPONDING ls_nodes TO ls_kostl.
+    set_parent( CHANGING cs_kostl = ls_kostl ).
+    APPEND ls_kostl TO lt_kostl.
+    CHECK ls_nodes-xvalues = 'X'."sign_x.
+    lv_hlevel_next = ls_nodes-hlevel + 1.
+    LOOP AT lt_values INTO ls_values
+      WHERE setid = ls_nodes-setid."s FROM l_ind.
+      ls_kostl-hlevel          = lv_hlevel_next.
+      ls_kostl-parentshortname = ls_nodes-setid.
+      ls_kostl-shortname       = ls_values-vfrom.
+      SHIFT ls_kostl-shortname LEFT DELETING LEADING '0'.
+*      READ TABLE lt_master_data INTO ls_master WITH KEY name = ls_values-vfrom.
+*      ls_kostl-descript        = ls_master-text.
+      READ TABLE lt_cskt INTO data(ls_cskt) WITH KEY kostl = ls_values-vfrom BINARY SEARCH.
+      ls_kostl-descript        = ls_cskt-ltext.
+      APPEND ls_kostl TO lt_kostl.
+    ENDLOOP.
+  ENDLOOP.
+
+  APPEND LINES OF lt_kostl TO gt_kostl_struc.
+
+ENDMETHOD.
+
+
+METHOD SET_PARENT.
+
+  DATA: ls_parents TYPE zsfss_cost_centre_struc.
+  DATA: lv_hlvel_parent TYPE setlev.
+
+  lv_hlvel_parent = cs_kostl-hlevel - 1.
+
+  DELETE gt_parents_key WHERE hlevel GT lv_hlvel_parent.
+
+  ls_parents-hlevel          = cs_kostl-hlevel.
+  ls_parents-parentshortname = cs_kostl-parentshortname.
+
+  APPEND ls_parents TO gt_parents_key.
+
+ENDMETHOD.
+
+
+method SET_PARENT_KEY.
+
+
+  DATA: ls_parents TYPE zsfss_cost_centre_struc.
+  DATA: lv_hlvel_parent TYPE setlev.
+
+  lv_hlvel_parent = cs_kostl-hlevel - 1.
+
+  DELETE gt_parents_key WHERE hlevel GT lv_hlvel_parent.
+
+  ls_parents-hlevel          = cs_kostl-hlevel.
+  ls_parents-parentshortname = cs_kostl-parentshortname.
+
+  APPEND ls_parents TO gt_parents_key.
+
+endmethod.
+ENDCLASS.

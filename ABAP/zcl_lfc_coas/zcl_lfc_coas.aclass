@@ -1,0 +1,1913 @@
+class ZCL_LFC_COAS definition
+  public
+  final
+  create public .
+
+public section.
+
+  types TT_DEFAULT type STANDARD TABLE OF ZCL_ZLFC_COAS_MPC=>TS_DEFAULT
+    WITH DEFAULT KEY .
+
+  class-methods GET_FIN_STAT_VERSIONS
+    returning
+      value(RT_FIN_STAT_VERSION) type ZFSS_FIN_STAT_VERSION_TT .
+*"* public components of class ZCL_LFC_COAS
+*"* do not include other source files here!!!
+  class-methods GET_GL_ACCOUNTS_HIERARCHY
+    importing
+      !IV_FINVERSION type CHAR4 optional
+      !IV_HIER_OPTIONS type CHAR1 optional
+      !IV_CASHFLOW type BOOLE_D optional
+      !IV_SHOW_COA type BOOLE_D optional
+      !IV_CONTROL_TYPE type CHAR3 optional
+      !IV_GL_ACCOUNT type CHAR10 optional
+    returning
+      value(RT_HIERARCHY_DATA) type ZFSS_GL_ACCOUNT_HIERARCHY_TT .
+  class-methods GET_GL_ACCOUNTS
+    importing
+      !IV_SEARCH type TEXT50 optional
+      !IV_GL_FROM type SAKNR optional
+      !IV_GL_TO type SAKNR optional
+      !IV_COMPANY type CHAR50 optional
+      !IV_CONTROL_TYPE type TEXT20 optional
+    returning
+      value(RT_GL_ACCOUNTS) type ZFSS_GL_ACCOUNT_TT .
+  class-methods GET_INTERNAL_ORDERS
+    importing
+      !IV_SEARCH type STRING
+    returning
+      value(RT_INTERNAL_ORDERS) type ZFSS_INTERNAL_ORDER_TT .
+  class-methods GET_COST_CENTRES_HIERARCHY
+    importing
+      !IV_COST_CENTRE type KOSTL optional
+      !IV_SEARCH type STRING optional
+    returning
+      value(RT_COST_CENTRE_HIERARCHY) type ZFSS_COST_CENTRE_HIERARCHY_TT .
+  class-methods GET_COST_CENTRES_HIERARCHY_2
+    importing
+      !IV_COST_CENTRE type KOSTL optional
+      !IV_SEARCH type STRING optional
+    returning
+      value(RT_COST_CENTRE_HIERARCHY) type ZFSS_COST_CENTRE_HIERARCHY_TT .
+  class-methods GET_COST_CENTRES
+    importing
+      !IV_SEARCH type STRING
+    returning
+      value(RT_COST_CENTRES) type ZFSS_COST_CENTRE_TT .
+  class-methods GET_HIERARCHY
+    importing
+      !IV_HIERARCHY_TYPE type CHAR2 default 'FC'
+      !IV_FILTER type TEXT50 optional
+    returning
+      value(RT_HIERARCHY) type ZFSS_HIERARCHY_TT .
+  class-methods GET_FUND_CODES
+    importing
+      !IV_SEARCH type STRING
+    returning
+      value(RT_FUND_CODES) type ZFSS_FUND_CODE_TT .
+  class-methods GET_WBS_ELEMENTS
+    importing
+      !IV_SEARCH type STRING
+    returning
+      value(RT_WBS_ELEMENTS) type ZFSS_WBS_ELEMENT_TT .
+  class-methods GET_CONTROL_TYPES
+    returning
+      value(RT_CONTROL_TYPES) type ZFSS_CONTROL_TYPE_TT .
+  class-methods GET_COMPANIES
+    returning
+      value(RT_COMPANIES) type ZFSS_COMPANY_TT .
+  class-methods GET_DEFAULTS
+    returning
+      value(RT_DEFAULTS) type TT_DEFAULT .
+  class-methods CONVERT_SEARCH_TERM
+    importing
+      !IV_SEARCH type STRING
+    returning
+      value(RV_CONV_SEARCH) type STRING .
+protected section.
+*"* protected components of class ZCL_LFC_COAS
+*"* do not include other source files here!!!
+private section.
+
+*"* private components of class ZCL_LFC_COAS
+*"* do not include other source files here!!!
+  constants AC_CO_AREA type KOKRS value 'CA01' ##NO_TEXT.
+  constants AC_FM_AREA type FIKRS value 'FM01' ##NO_TEXT.
+  constants AC_CHRT_ACCTS type KTOPL value 'COA' ##NO_TEXT.
+  constants AC_URL_PLACEHOLDER type CHAR5 value '%URL%' ##NO_TEXT.
+  class-data GV_CHILD_ID type INT4 .
+
+  class-methods ADD_NODE_WITH_SUBTREE
+    importing
+      !IV_LEVEL type INT4
+      !IV_PARENT_ID type INT4
+      !IS_NODE_ID type FIBS_BS_NODE_ID
+    changing
+      !CT_NODE_TAB type SNODETAB .
+ENDCLASS.
+
+
+
+CLASS ZCL_LFC_COAS IMPLEMENTATION.
+
+
+method add_node_with_subtree.
+  data:
+    ls_childrn_node_tab type fibs_bs_node_id,
+    lt_childrn_node_tab type standard table of fibs_bs_node_id,
+    ls_node_tab         type snodetext,
+    lv_level            type int4,
+    lv_parent_id        type int4.
+
+  "    lt_node_tab_temp    type standard table of snodetext.
+
+  " lt_node_tab_temp[] = lt_node_tab[].
+  lv_level = iv_level.
+  lv_parent_id = iv_parent_id.
+
+* Get the display info
+  call function 'FI_BS_NODE_GET_SNODETEXT'
+    exporting
+      node_id          = is_node_id
+      with_gl_accounts = abap_true
+    importing
+      attr             = ls_node_tab
+    exceptions
+      node_not_found   = 01.
+
+  ls_node_tab-tlevel = iv_level.
+  ls_node_tab-id = ZCL_LFC_COAS=>gv_child_id.
+  ls_node_tab-parent = iv_parent_id.
+  append ls_node_tab to ct_node_tab.
+
+* And do the same for its children
+  lv_level = lv_level + 1.
+  call function 'FI_BS_NODE_GET_CHILDREN'
+    exporting
+      node              = is_node_id
+      with_gl_accounts  = abap_true
+    tables
+      children_node_tab = lt_childrn_node_tab
+    exceptions
+      node_not_found    = 01.
+
+  lv_parent_id = ZCL_LFC_COAS=>gv_child_id.
+
+  loop at lt_childrn_node_tab into ls_childrn_node_tab.
+    add 1 to gv_child_id.
+
+    call method ZCL_LFC_COAS=>add_node_with_subtree
+      exporting
+        iv_level     = lv_level
+        iv_parent_id = lv_parent_id
+        is_node_id   = ls_childrn_node_tab
+      changing
+        ct_node_tab  = CT_NODE_TAB
+        .
+
+  endloop.
+
+  "lt_node_tab[] = lt_node_tab_temp[].
+
+endmethod.
+
+
+method convert_search_term.
+
+  rv_conv_search = iv_search.
+
+  translate rv_conv_search to upper case.
+
+  if rv_conv_search is initial.
+    rv_conv_search = '%'.
+  else.
+    if rv_conv_search cs '*'.
+      replace all occurrences of '*' in rv_conv_search with '%'.
+    else.
+      rv_conv_search = '%' && rv_conv_search && '%'.
+    endif.
+  endif.
+endmethod.
+
+
+method get_companies.
+  data: ls_company type zsfss_company.
+
+  ls_company-company = 'ALL'.
+  ls_company-company_name = 'All Companies'.
+  append ls_company to rt_companies.
+
+  select bukrs butxt appending table rt_companies
+    from t001.
+
+endmethod.
+
+
+method get_control_types.
+  data: ls_control_type type zsfss_control_type.
+
+  ls_control_type-control_type = 'ALL'.
+  ls_control_type-control_type_text = 'All Control Types'.
+  append ls_control_type to rt_control_types.
+
+  ls_control_type-control_type = 'D'.
+  ls_control_type-control_type_text = 'Departmental'.
+  append ls_control_type to rt_control_types.
+
+  ls_control_type-control_type = 'A'.
+  ls_control_type-control_type_text = 'Administered'.
+  append ls_control_type to rt_control_types.
+
+  ls_control_type-control_type = 'S'.
+  ls_control_type-control_type_text = 'Special Public Monies'.
+  append ls_control_type to rt_control_types.
+
+endmethod.
+
+
+method get_cost_centres.
+*----------------------------------------------------------------------*
+* METHOD ID:          GET_COST_CENTRES
+* DESCRIPTION:        This method is used by the UI5 Chart Of Accounts
+*                     search application to retrieve Cost Centre data.
+*
+* AUTHOR:             Brad Pokroy
+* CREATE DATE:        10 May 2019
+* R/3 RELEASE VERSION: ECC6
+*
+* ACTIVITY:           AD-11-32-05 CoA Search
+* CR Number:          6000001455: CFOG BAR 2018-28 DFG Self-Service App
+*-----------------------------------------------------------------------
+* VERSION CONTROL
+*
+* Date     Author    CTS Req    Dev Script     Description
+*-----------------------------------------------------------------------
+* 26.07.19 070667JPS RD2K918249 DS-11-32-05-01 S 6000001628: DFG UI5 -
+*                                              CoA search App Short
+*                                              dumps.  Changed SQL
+*                                              select (removed "LIKE").
+*-----------------------------------------------------------------------
+  data: lv_search type string.
+* Following added for CR RD2K918249
+  data:
+    lt_cost_centres     type standard table of zsfss_cost_centre,
+    ls_cost_centres     type zsfss_cost_centre.
+
+* Following block commented for CR RD2K918249
+*  lv_search = convert_search_term( iv_search ).
+*
+**--- read the data
+*  select s~kostl t~ktext t~ltext t~mctxt
+*   "up to 500 rows
+*    from csks as s
+*    inner join cskt as t
+*    on t~kokrs = s~kokrs
+*    and t~kostl = s~kostl
+*    and t~datbi = s~datbi
+*    into corresponding fields of table rt_cost_centres
+*    where s~kokrs eq 'CA01'
+*    and s~datbi ge sy-datlo
+*    and s~datab le sy-datlo
+*    and s~bkzkp ne abap_true
+*    and s~bkzer ne abap_true
+*    and t~spras eq sy-langu
+*    and s~bkzkp eq abap_false
+*    and ( s~kostl like lv_search or t~mctxt like lv_search ).
+* End of commented block for CR RD2K918249
+
+* Following block added for CR RD2K918249
+*--- read the data
+  select s~kostl t~ktext t~ltext t~mctxt
+    from csks as s
+    inner join cskt as t
+    on t~kokrs = s~kokrs
+    and t~kostl = s~kostl
+    and t~datbi = s~datbi
+    into corresponding fields of table lt_cost_centres
+    where s~kokrs eq 'CA01'
+    and s~datbi ge sy-datlo
+    and s~datab le sy-datlo
+    and s~bkzkp ne abap_true
+    and s~bkzer ne abap_true
+    and t~spras eq sy-langu
+    and s~bkzkp eq abap_false.
+
+* Find the records that we need
+  loop at lt_cost_centres into ls_cost_centres.
+    if ls_cost_centres-kostl cs iv_search
+      or ls_cost_centres-ktext cs iv_search
+      or ls_cost_centres-ltext cs iv_search
+      or ls_cost_centres-mctxt cs iv_search.
+
+      append ls_cost_centres to rt_cost_centres.
+
+    endif.
+  endloop.
+
+endmethod.
+
+
+method get_cost_centres_hierarchy.
+  data: lt_parent     type zfss_kostl_hierarchy_tt,
+        ls_parent     type zsfss_kostl_hierarchy,
+        lt_kostl  type zfss_kostl_hierarchy_tt,
+        ls_kostl  type zsfss_kostl_hierarchy,
+        lr_node       type ref to if_wd_context_node,
+        ls_kostl_tree  type zsfss_cost_centre_hierarchy,
+        lt_hierarchy_filter type zfss_cost_centre_hierarchy_tt,
+        lt_hierarchy_parents type zfss_cost_centre_hierarchy_tt,
+        lv_prev_levl   type i,
+        ls_parent_levl type i.
+
+  data: lr_kostl_struc type ref to ZCL_LFC_COST_CENTER_STRUC.
+  data: lt_outtab      type zfss_cost_centre_struc_tt.
+  data: ls_outtab      type zsfss_cost_centre_struc,
+        ls_hierarchy        type zsfss_cost_centre_hierarchy,
+        ls_hierarchy_parent        type zsfss_cost_centre_hierarchy.
+
+  field-symbols:
+      <ls_hierarchy>      type zsfss_cost_centre_hierarchy.
+* Get the licence and certificate hierarchy.
+
+
+* Create the kostl structure obj
+  create object lr_kostl_struc.
+
+* Get the structure
+  lr_kostl_struc->get_structure( ).
+
+  loop at lr_kostl_struc->gt_kostl_struc into ls_outtab.
+
+    ls_kostl-levl  = ls_outtab-hlevel + 1.
+    ls_kostl-kostl = ls_outtab-shortname.
+    concatenate ls_outtab-shortname '-' ls_outtab-descript into ls_kostl-stext.
+    if not ls_outtab-parentshortname is initial.
+      ls_kostl-otype = 'K'.
+    else.
+      ls_kostl-otype = ''.
+    endif.
+    append ls_kostl to lt_kostl.
+
+  endloop.
+
+  check not lt_kostl is initial.
+
+
+*
+* Set up the Licence and Certificate tree
+*
+  lv_prev_levl = 0.
+
+  loop at lt_kostl into ls_kostl.
+
+
+* Set is leaf for previous entry.
+*
+    if lv_prev_levl lt ls_kostl-levl
+       and
+       lv_prev_levl ne 0.
+
+      "ls_kostl_tree-is_leaf = abap_false.
+
+    endif.
+
+    if lv_prev_levl ne 0.
+      append ls_kostl_tree to rt_cost_centre_hierarchy.
+    endif.
+
+    lv_prev_levl = ls_kostl-levl.
+
+
+*
+* Set the tre entry.
+*
+    clear: ls_kostl_tree.
+
+    ls_kostl_tree-kostl           = ls_kostl-kostl.
+    ls_kostl_tree-kostltxt        = ls_kostl-stext.
+    "ls_kostl_tree-children_loaded = abap_true.
+    "ls_kostl_tree-is_leaf         = abap_true.
+    ls_kostl_tree-levl            = ls_kostl-levl.
+    "ls_kostl_tree-otype           = ls_kostl-otype.
+
+** Expand the first level
+*    if ls_kostl-levl = 1.
+*      ls_kostl_tree-is_expanded     = abap_true.
+*    else.
+*      ls_kostl_tree-is_expanded     = abap_false.
+*    endif.
+
+
+*
+* Keep active levels.
+*
+    delete lt_parent where levl eq ls_kostl-levl.
+    append ls_kostl to lt_parent.
+
+*
+* Get the parent for this node.
+*
+    ls_parent_levl = ls_kostl-levl - 1.
+
+    if ls_parent_levl ne 0.
+      read table lt_parent into ls_parent with key levl = ls_parent_levl.
+      ls_kostl_tree-kostl_parent = ls_parent-kostl.
+    endif.
+
+  endloop. "lt_org
+
+*
+* Set is leaf for previous entry.
+*
+  if lv_prev_levl lt ls_kostl-levl
+     and
+
+     lv_prev_levl ne 0.
+
+    "ls_kostl_tree-is_leaf = abap_false.
+
+  endif.
+
+  append ls_kostl_tree to rt_cost_centre_hierarchy.
+
+  if iv_search is not initial or iv_cost_centre is not initial.
+    lt_hierarchy_filter = rt_cost_centre_hierarchy.
+    clear rt_cost_centre_hierarchy.
+    if iv_cost_centre is not initial.
+      loop at lt_hierarchy_filter assigning <ls_hierarchy> where kostl cs iv_cost_centre.
+        append <ls_hierarchy> to rt_cost_centre_hierarchy.
+      endloop.
+    else.
+      loop at lt_hierarchy_filter assigning <ls_hierarchy> where kostl cs iv_search
+                                                              or kostltxt cs iv_search.
+        append <ls_hierarchy> to rt_cost_centre_hierarchy.
+      endloop.
+    endif.
+    if rt_cost_centre_hierarchy is not initial.
+      loop at rt_cost_centre_hierarchy into ls_hierarchy.
+
+        do.
+          read table lt_hierarchy_filter assigning <ls_hierarchy> with key kostl = ls_hierarchy-kostl_parent.
+          if sy-subrc = 0.
+            append <ls_hierarchy> to lt_hierarchy_parents.
+            ls_hierarchy = <ls_hierarchy>.
+          else.
+            exit.
+          endif.
+        enddo.
+      endloop.
+      append lines of lt_hierarchy_parents to rt_cost_centre_hierarchy.
+    endif.
+  endif.
+
+  sort rt_cost_centre_hierarchy by kostl ascending.
+
+  delete adjacent duplicates from rt_cost_centre_hierarchy.
+endmethod.
+
+
+method get_cost_centres_hierarchy_2.
+
+* VERSION CONTROL
+*
+* Date     Author    CTS Req    Dev Script     Description
+*-----------------------------------------------------------------------
+* 29.09.22 010965MI  RD2K923161 DS-11-32-07-01 S 6000002831: MyFi Continuous Improvement November Rel - Performance improvements
+*-----------------------------------------------------------------------
+
+  data: ls_kostl  type zsfss_cost_centre_hierarchy.
+
+  data: lv_overwrite           type sy-datar.
+  data: ls_info                type grphinfo.
+  data: lt_nodes               type  gseth_node_tab.
+  data: lt_values              type  gseth_val_tab.
+
+  " Input is a search string or a single cost centre.
+  " If no filter is supplied, use method get_cost_centres_hierarchy to get the complete hierarchy
+  if iv_cost_centre is initial and iv_search is initial.
+    rt_cost_centre_hierarchy = get_cost_centres_hierarchy( ).
+    return.
+  endif.
+
+  data lv_setid type  sethier-setid.
+  lv_setid = |0101CA01| &&
+              zcl_lfc_util=>read_variable( i_vnam = 'COST_CENTRE_HIER'
+                                                    i_default = 'TOP' ).
+
+  call function 'K_HIERARCHY_TABLES_READ'
+    exporting
+      e_class                     = '0101'
+      e_setid                     = lv_setid    "'0101CA01TOP'
+      e_kokrs                     = 'CA01'
+    tables
+      t_nodes                     = lt_nodes
+      t_values                    = lt_values
+    changing
+      c_info                      = ls_info
+      c_overwrite                 = lv_overwrite
+    exceptions
+      no_controlling_area         = 1
+      no_chart_of_account         = 2
+      different_controlling_areas = 3
+      different_chart_of_accounts = 4
+      set_not_found               = 5
+      illegal_field_replacement   = 6
+      illegal_table_replacement   = 7
+      fm_raise                    = 8
+      convert_error               = 9
+      no_overwrite_standard_hier  = 10
+      no_bukrs_for_kokrs          = 11
+      others                      = 12.
+  if sy-subrc <> 0.
+    return.
+  endif.
+
+  " Read master data for selected cost centre(s)
+  if iv_cost_centre is not initial.
+    data(lv_cost_centre) = conv kostl( |{ iv_cost_centre alpha = in }| ).
+    select s~kostl, s~kokrs, t~ltext
+      from csks as s
+      inner join cskt as t
+      on t~kokrs = s~kokrs
+      and t~kostl = s~kostl
+      and t~datbi = s~datbi
+      into table @data(lt_cost_centres)
+      where s~kokrs eq 'CA01'
+      and s~datbi ge @sy-datlo
+      and s~datab le @sy-datlo
+      and s~bkzkp ne @abap_true
+      and s~bkzer ne @abap_true
+      and t~spras eq @sy-langu
+      and s~bkzkp eq @abap_false
+      and s~kostl = @lv_cost_centre.
+
+  else .
+    data(l_search) = |%{ iv_search case = upper }%|.
+    select s~kostl, s~kokrs, t~ltext
+      from csks as s
+      inner join cskt as t
+      on t~kokrs = s~kokrs
+      and t~kostl = s~kostl
+      and t~datbi = s~datbi
+      into table @lt_cost_centres
+      where s~kokrs eq 'CA01'
+      and s~datbi ge @sy-datlo
+      and s~datab le @sy-datlo
+      and s~bkzkp ne @abap_true
+      and s~bkzer ne @abap_true
+      and t~spras eq @sy-langu
+      and s~bkzkp eq @abap_false
+      and ( s~kostl like @l_search or t~mctxt like @l_search ).
+
+  endif.
+
+  loop at lt_cost_centres into data(ls_cost_centre).
+    read table lt_values assigning field-symbol(<value>) with key vfrom = ls_cost_centre-kostl.
+    if sy-subrc is not initial.
+      loop at lt_values assigning <value> where vfrom < ls_cost_centre-kostl and vfrom >= ls_cost_centre-kostl.
+        exit.
+      endloop.
+      check sy-subrc is initial.
+    endif.
+*    " Now get all the ancestors
+    read table lt_nodes into data(ls_node) with key setid = <value>-setid.
+    data(l_row) = sy-tabix - 1.
+    ls_kostl = value #(
+                kostl = <value>-vfrom
+                kostl_parent = ls_node-shortname
+                kostltxt = |{ <value>-vfrom alpha = out } - { ls_cost_centre-ltext }|
+                levl  =  ls_node-hlevel + 1 ).
+    insert ls_kostl into table rt_cost_centre_hierarchy.
+    while l_row > 0.
+*    loop at lt_nodes assigning field-symbol(<node>) from l_row to 1.
+      read table lt_nodes assigning field-symbol(<node>) index l_row.
+      subtract 1 from l_row.
+      if <node>-hlevel < ls_node-hlevel.
+        ls_kostl = value #(
+                    kostl = ls_node-shortname
+                    kostl_parent = <node>-shortname
+                    kostltxt = |{ ls_node-shortname } - { ls_node-descript }|
+                    levl  =  ls_node-hlevel ).
+
+        ls_node = <node>.
+        insert ls_kostl into table rt_cost_centre_hierarchy.
+
+      endif.
+    endwhile.
+    " Root node
+    ls_kostl = value #(
+                kostl = ls_node-shortname
+                kostl_parent = ''
+                kostltxt = |{ ls_node-shortname } - { ls_node-descript }|
+                levl  =  ls_node-hlevel ).
+    insert ls_kostl into table rt_cost_centre_hierarchy.
+  endloop.
+
+
+  sort rt_cost_centre_hierarchy by kostl ascending.
+
+  delete adjacent duplicates from rt_cost_centre_hierarchy.
+
+endmethod.
+
+
+method get_defaults.
+
+  data:
+    ls_default type ZCL_ZLFC_COAS_mpc=>ts_default,
+    l_pernr    type pernr_d,
+    l_usrid    type sysid.
+
+*===> default GL Account Hierarachy
+  ls_default-fsvhier = zcl_lfc_util=>read_variable( i_vnam = 'GL_ACCT_HIER'
+                                                             i_comp_code = '1000'
+                                                             i_default = 'FSV1' ).
+
+*===> full name
+*--- employee ID
+  l_pernr = sy-uname.
+  select single pernr
+    from pa0001
+    into l_pernr
+    where pernr = l_pernr.
+  if sy-subrc <> 0.
+    l_usrid = sy-uname.
+    select single pernr
+      from pa0105
+      into l_pernr
+      where usrid eq l_usrid
+        and subty eq '0001'.
+  endif.
+
+  if l_pernr is initial.
+*--- SAP full name
+    select single name_text
+      from v_usr_name
+      into @data(l_name_text)
+      where bname = @sy-uname.
+    ls_default-user = l_name_text.
+  else.
+*--- HR full name
+    select single nachn, vorna, titel
+      from pa0002
+      into (@data(l_nachn), @data(l_vorna), @data(l_titel))
+      where pernr = @l_pernr
+        and begda le @sy-datum
+        and endda ge @sy-datum.
+    if sy-subrc = 0.
+      concatenate l_titel l_vorna l_nachn into ls_default-user separated by space.
+    endif.
+  endif.
+
+  if ls_default-user is initial.
+    ls_default-user = sy-uname.
+  endif.
+
+  append ls_default to rt_defaults.
+
+endmethod.
+
+
+  method get_fin_stat_versions.
+
+
+    select   versn vstxt from  t011t
+           into table rt_fin_stat_version
+           where  spras  = sy-langu
+           order by versn.
+
+    " If there is a configured list of hierarchies, restrict the output
+    data(l_allowed_hier) = zcl_lfc_util=>read_variable( i_vnam = 'GL_ACCT_HIER_LIST' ).
+    if l_allowed_hier is not initial.
+      data(l_std_hier) = zcl_lfc_util=>read_variable( i_vnam = 'GL_ACCT_HIER'
+                                                               i_comp_code = '1000' ).
+      loop at rt_fin_stat_version assigning field-symbol(<fin_stat_version>).
+        if l_allowed_hier cs <fin_stat_version>-fin_stat_version_id or
+          <fin_stat_version>-fin_stat_version_id = l_std_hier.
+          continue.
+        else.
+          delete rt_fin_stat_version.
+        endif.
+      endloop.
+    endif.
+
+  endmethod.
+
+
+method get_fund_codes.
+*----------------------------------------------------------------------*
+* METHOD ID:          GET_FUND_CODES
+* DESCRIPTION:        This method is used by the UI5 Chart Of Accounts
+*                     search application to retrieve Fund Code data.
+*
+* AUTHOR:             Brad Pokroy
+* CREATE DATE:        10 May 2019
+* R/3 RELEASE VERSION: ECC6
+*
+* ACTIVITY:           AD-11-32-05 CoA Search
+* CR Number:          6000001455: CFOG BAR 2018-28 DFG Self-Service App
+*-----------------------------------------------------------------------
+* VERSION CONTROL
+*
+* Date     Author    CTS Req    Dev Script     Description
+*-----------------------------------------------------------------------
+* 26.07.19 070667JPS RD2K918249 DS-11-32-05-01 S 6000001628: DFG UI5 -
+*                                              CoA search App Short
+*                                              dumps.  Changed SQL
+*                                              select (removed "LIKE").
+*-----------------------------------------------------------------------
+
+* Following type added for CR RD2K918249
+  types:
+    begin of typ_funds.
+          include type zsfss_fund_code.
+  types:
+      mctxt               type fmfint-mctxt,
+    end of typ_funds.
+
+  data: lv_search type string.
+* Following added for CR RD2K918249
+  data:
+    ls_fund_codes       type zsfss_fund_code,
+    lt_fund_codes_tmp   type standard table of typ_funds,
+    ls_fund_codes_tmp   type typ_funds.
+
+* Following block commented for CR RD2K918249
+*  lv_search = convert_search_term( iv_search ).
+*
+**--- read the data
+*  select f~fincode t~bezeich t~beschr
+*    "up to 500 rows
+*    from fmfincode as f
+*      inner join fmfint as t
+*      on t~fincode = f~fincode
+*    into corresponding fields of table rt_fund_codes
+*    where f~fikrs eq ac_fm_area
+*    and t~spras eq sy-langu
+*    and f~datbis >= sy-datlo
+*    and ( f~fincode like lv_search or t~mctxt like lv_search ).
+* End of commented block for CR RD2K918249
+
+* Following added for CR RD2K918249
+*--- read the data
+  select f~fincode t~bezeich t~beschr t~mctxt
+    from fmfincode as f
+    inner join fmfint as t
+       on t~fincode = f~fincode
+     into corresponding fields of table lt_fund_codes_tmp
+    where f~fikrs eq ac_fm_area
+      and t~spras eq sy-langu
+      and f~datbis >= sy-datlo.
+
+* Find the records that we need
+  loop at lt_fund_codes_tmp into ls_fund_codes_tmp.
+    if ls_fund_codes_tmp-fincode cs iv_search
+      or ls_fund_codes_tmp-bezeich cs iv_search
+      or ls_fund_codes_tmp-beschr cs iv_search
+      or ls_fund_codes_tmp-mctxt cs iv_search.
+
+      move-corresponding ls_fund_codes_tmp to ls_fund_codes.
+
+      append ls_fund_codes to rt_fund_codes.
+
+    endif.
+  endloop.
+
+endmethod.
+
+
+METHOD get_gl_accounts.
+*----------------------------------------------------------------------*
+* METHOD:             GET_GL_ACCOUNTS
+* DESCRIPTION:        Get GL accounts.
+* AUTHOR:             Rodney Spence
+* NOTES:
+* CREATE DATE:        24 October 2007
+* R/3 RELEASE VERSION: 4.0B
+*
+* ACTIVITY:         Unknown
+*-----------------------------------------------------------------------
+* VERSION CONTROL ECC6
+* Date     Author    CTS Req    Dev Script    Description
+* ---------------------------------------------------------------------
+* 02.05.23 230259PAW RD2K923889 11-33-01-01   S 6000002940: BAR 2023-06
+*                                             Re-purposing of company code
+*                                             ASA Project
+* 03.04.24 230259PAW RD2K924794 11-33-01-02   S 6000003103: BAR -Company Code
+*                                             Nuclear Submarine_ECC
+*                                             NSR Project
+*-----------------------------------------------------------------------
+  TYPES:
+    BEGIN OF ty_company_tab,
+      bukrs TYPE bukrs,
+    END OF ty_company_tab.
+
+  TYPES:
+    BEGIN OF ty_gl_data_temp,
+      bukrs TYPE bukrs.
+      INCLUDE           TYPE zsfss_gl_account.
+    TYPES: END OF ty_gl_data_temp.
+
+  DATA:
+    lw_search           TYPE txt50,
+    lw_glfrom           TYPE char10,
+    lw_glto             TYPE char10,
+    lw_company          TYPE txt50,
+    lw_controltype      TYPE txt20,
+    lt_glacct_data      TYPE zfss_gl_account_tt,
+    ls_glacct_data      LIKE LINE OF lt_glacct_data,
+    lt_glacct_data_temp TYPE STANDARD TABLE OF ty_gl_data_temp,
+    ls_glacct_data_temp LIKE LINE OF lt_glacct_data_temp,
+    lt_ttxit            TYPE STANDARD TABLE OF ttxit,
+    ls_ttxit            LIKE LINE OF lt_ttxit,
+    lt_text_lines       TYPE STANDARD TABLE OF tline,
+    ls_text_lines       LIKE LINE OF lt_text_lines,
+    lw_text_name        TYPE thead-tdname,
+    lw_tdspras          TYPE thead-tdspras,
+    lt_t001             TYPE STANDARD TABLE OF t001,
+    ls_t001             LIKE LINE OF lt_t001,
+    lt_bukrs            TYPE STANDARD TABLE OF selopt,
+    ls_bukrs            LIKE LINE OF lt_bukrs,
+    lt_saknr            TYPE STANDARD TABLE OF selopt,
+    ls_saknr            LIKE LINE OF lt_bukrs,
+    lt_companies        TYPE STANDARD TABLE OF ty_company_tab,
+    ls_companies        LIKE LINE OF lt_companies,
+    lt_controltypes     TYPE STANDARD TABLE OF ty_company_tab,
+    ls_controltypes     LIKE LINE OF lt_controltypes,
+    lw_string_type      TYPE dd01v-datatype,
+    lw_saknr_sql        TYPE n LENGTH 10,
+    lw_txt50            TYPE txt50_skat,
+    lw_definitn         TYPE string,
+    lw_includes         TYPE string,
+    lw_excludes         TYPE string.
+
+*   lt_return           type standard table of bapireturn,
+*   ls_return           like line of lt_return.
+
+
+
+*  data:
+*   l_wrbtr             like bseg-wrbtr,
+*   l_fwste             like bset-fwste,
+*   lt_mwdat            type standard table of rtax1u15.
+*
+*  field-symbols:
+*   <ls_itm>            like line of lt_itm.
+
+*---
+
+* Move parameters to local fields
+  lw_search = iv_search.
+  lw_glfrom = iv_gl_from.
+  lw_glto = iv_gl_to.
+  lw_company = iv_company.
+  lw_controltype = iv_control_type.
+
+* Default values in for the company and control type fields if no
+* values are passed in - i.e. set them to all values.
+  IF lw_company IS INITIAL.
+    lw_company ='ALL'.  "ALL COMPANIES
+  ENDIF.
+
+  IF lw_controltype IS INITIAL.
+    lw_controltype = 'ALL'. "ALL CONTROL TYPES
+  ENDIF.
+
+* Build company code search
+
+  SELECT *
+    FROM t001
+    INTO CORRESPONDING FIELDS OF TABLE lt_t001
+   WHERE bukrs NE '0001'.
+
+  SORT lt_t001 BY bukrs ASCENDING.
+
+  CASE lw_company.
+    WHEN 'ALL'.   "ALL COMPANIES
+      "Administered" key="A"/
+      "Special Public Monies"
+      LOOP AT lt_t001 INTO ls_t001
+        WHERE butxt CP 'Defence*' OR butxt CP 'ASD*'.
+        ls_companies-bukrs = ls_t001-bukrs.
+        APPEND ls_companies TO lt_companies.
+      ENDLOOP.
+    WHEN 'DEF'.   "DEFENCE
+      LOOP AT lt_t001 INTO ls_t001
+        WHERE butxt CP 'Defence*'.
+        ls_companies-bukrs = ls_t001-bukrs.
+        APPEND ls_companies TO lt_companies.
+      ENDLOOP.
+    WHEN 'ASA'.  "AUSTRALIAN SUBMARIME AGENCY (ASA)
+      LOOP AT lt_t001 INTO ls_t001
+        WHERE butxt CP '*Submarine*'.
+        ls_companies-bukrs = ls_t001-bukrs.
+        APPEND ls_companies TO lt_companies.
+      ENDLOOP.
+    WHEN 'NSR'.  "NUCLEAR SAFETY REGULATOR (NSR)
+      LOOP AT lt_t001 INTO ls_t001
+        WHERE butxt CP '*Nuclear Safety*'.
+        ls_companies-bukrs = ls_t001-bukrs.
+        APPEND ls_companies TO lt_companies.
+      ENDLOOP.
+    WHEN 'ASD'.  "AUSTRALIAN SIGNALS DIRECTORATE (ASD)
+      LOOP AT lt_t001 INTO ls_t001
+        WHERE butxt CP 'ASD*'.
+        ls_companies-bukrs = ls_t001-bukrs.
+        APPEND ls_companies TO lt_companies.
+      ENDLOOP.
+    WHEN OTHERS.
+* No other values expected from SAPUI5 application but if other entries
+* exist, exit.
+      "raise company_field.
+  ENDCASE.
+
+  CASE lw_controltype.
+    WHEN 'ALL'.  "ALL CONTROL TYPES
+      LOOP AT lt_t001 INTO ls_t001.
+        ls_controltypes-bukrs = ls_t001-bukrs.
+        APPEND ls_controltypes TO lt_controltypes.
+      ENDLOOP.
+    WHEN 'D'.   "DEPARTMENTAL
+* Have to hard code these as there is no flag or indicator to idenify
+* Departmental company codes
+      ls_controltypes-bukrs = '1000'.
+      APPEND ls_controltypes TO lt_controltypes.
+      ls_controltypes-bukrs = '3000'.
+      APPEND ls_controltypes TO lt_controltypes.
+      ls_controltypes-bukrs = '4100'.
+      APPEND ls_controltypes TO lt_controltypes.
+      ls_controltypes-bukrs = '5000'.
+      APPEND ls_controltypes TO lt_controltypes.
+      ls_controltypes-bukrs = '6000'.
+      APPEND ls_controltypes TO lt_controltypes.
+    WHEN 'A'.  "ADMINISTERED
+* Have to hard code these as there is no flag or indicator to idenify
+* Administered company codes
+      ls_controltypes-bukrs = '2000'.
+      APPEND ls_controltypes TO lt_controltypes.
+      ls_controltypes-bukrs = '4200'.
+      APPEND ls_controltypes TO lt_controltypes.
+    WHEN 'S'.  "SPECIAL PUBLIC MONIES
+* Have to hard code these as there is no flag or indicator to idenify
+* SPM company codes
+      ls_controltypes-bukrs = '4300'.
+      APPEND ls_controltypes TO lt_controltypes.
+      ls_controltypes-bukrs = '5300'.
+      APPEND ls_controltypes TO lt_controltypes.
+    WHEN OTHERS.
+* No other values expected from SAPUI5 application but if other entries
+* exist, exit.
+      "raise controltype_field.
+  ENDCASE.
+
+  CLEAR ls_controltypes.
+  CLEAR ls_companies.
+
+* Only keep the company codes that are required based on the filters
+* provided.
+* Sort - to be sure, even though the source select was sorted already
+  SORT lt_companies BY bukrs ASCENDING.
+  SORT lt_controltypes BY bukrs ASCENDING.
+
+  LOOP AT lt_companies INTO ls_companies.
+    READ TABLE lt_controltypes WITH KEY bukrs = ls_companies-bukrs
+    INTO ls_controltypes.
+
+* Build the company code range table for the SKA1 select statement
+    IF sy-subrc = 0.  "Found entry so include in BUKRS range
+      ls_bukrs-sign = 'I'.
+      ls_bukrs-option = 'EQ'.
+      ls_bukrs-low = ls_companies-bukrs.
+      APPEND ls_bukrs TO lt_bukrs.
+    ENDIF.
+
+  ENDLOOP.
+
+  IF NOT lw_glfrom IS INITIAL.
+    IF NOT lw_glto IS INITIAL.
+      ls_saknr-sign = 'I'.
+      ls_saknr-option = 'BT'.
+      lw_saknr_sql = lw_glfrom.
+      ls_saknr-low = lw_saknr_sql.
+      lw_saknr_sql = lw_glto.
+      ls_saknr-high = lw_saknr_sql.
+      APPEND ls_saknr TO lt_saknr.
+    ELSE.
+      ls_saknr-sign = 'I'.
+      ls_saknr-option = 'EQ'.
+      lw_saknr_sql = lw_glfrom.
+      ls_saknr-low = lw_saknr_sql.
+      APPEND ls_saknr TO lt_saknr.
+    ENDIF.
+  ENDIF.
+
+* Retrieve the GL Account records for the company codes
+  SORT lt_bukrs BY low ASCENDING.
+
+* Check if the user has provided a GL Account as the search criteria
+  IF NOT lw_search IS INITIAL.
+
+    CALL FUNCTION 'NUMERIC_CHECK'
+      EXPORTING
+        string_in = lw_search
+      IMPORTING
+*       STRING_OUT =
+        htype     = lw_string_type.
+
+  ENDIF.
+
+*  if lw_search co '0123456789'.
+*    and strlen( lw_search ) = 5
+*     or strlen( lw_search ) = 10.
+
+* If no GL range passed in, search by text field for SAKNR if it is
+* numeric (i.e. most likely a GL code)
+*  if lw_string_type = 'NUMC'.
+  IF lt_saknr[] IS INITIAL.
+
+*      lw_saknr_sql = lw_search.
+
+    SELECT b~bukrs b~saknr t~txt50
+      INTO TABLE lt_glacct_data_temp
+      FROM ( skb1 AS b
+             INNER JOIN skat AS t ON b~saknr = t~saknr
+             INNER JOIN ska1 AS a ON b~saknr = a~saknr  )
+     WHERE b~bukrs IN lt_bukrs "('1000', '2000', '4100', '5000')
+       AND t~spras = sy-langu
+       AND t~ktopl = 'DCOA'
+       AND b~xspeb = space
+       AND a~xspeb = abap_false
+      .
+*         and b~saknr = lw_saknr_sql.
+
+  ELSE.
+    SELECT b~bukrs b~saknr t~txt50
+      INTO TABLE lt_glacct_data_temp
+      FROM ( skb1 AS b
+      INNER JOIN skat AS t ON b~saknr = t~saknr
+      INNER JOIN ska1 AS a ON b~saknr = a~saknr  )
+      WHERE b~bukrs IN lt_bukrs "('1000', '2000', '4100', '5000')
+        AND t~spras = sy-langu
+        AND t~ktopl = 'DCOA'
+        AND b~xspeb = space
+        AND a~xspeb = abap_false
+        AND b~saknr IN lt_saknr.
+  ENDIF.
+
+*  else.
+*    if lt_saknr[] is initial.
+*
+*      select b~bukrs b~saknr t~txt50
+*        into corresponding fields of table lt_glacct_data_temp
+*        from ( skb1 as b
+*           inner join skat as t on b~saknr = t~saknr )
+*        where b~bukrs in lt_bukrs "('1000', '2000', '4100', '5000')
+*          and t~spras = 'EN'
+*          and t~ktopl = 'COA'
+*          and b~xspeb = space.
+*
+*    else.
+*      select b~bukrs b~saknr t~txt50
+*        into corresponding fields of table lt_glacct_data_temp
+*        from ( skb1 as b
+*        inner join skat as t on b~saknr = t~saknr )
+*        where b~bukrs in lt_bukrs "('1000', '2000', '4100', '5000')
+*          and t~spras = 'EN'
+*          and t~ktopl = 'COA'
+*          and b~xspeb = space
+*          and b~saknr in lt_saknr.
+*
+*    endif.
+*
+*  endif.
+
+  IF NOT lt_glacct_data_temp[] IS INITIAL.  "One or more rows found
+
+* Get rid of the BUKRS now - not needed for the user
+    LOOP AT lt_glacct_data_temp INTO ls_glacct_data_temp.
+      MOVE-CORRESPONDING ls_glacct_data_temp TO ls_glacct_data.
+      "ls_glacct_data-company_code = ls_glacct_data_temp-bukrs.
+      APPEND ls_glacct_data TO lt_glacct_data.
+    ENDLOOP.
+
+    SORT lt_glacct_data BY gl_account ASCENDING.
+    DELETE ADJACENT DUPLICATES FROM lt_glacct_data.
+
+* Retrieve  the configuration settings for the GL Account Chart of
+* Accounts texts
+    SELECT *
+      INTO CORRESPONDING FIELDS OF TABLE lt_ttxit
+    FROM ttxit
+    WHERE tdspras = sy-langu
+     AND tdobject = 'SKA1'.
+
+    lw_tdspras = 'E'.
+
+    LOOP AT lt_glacct_data INTO ls_glacct_data.
+
+* set the text name value (GL Account plus "COA")
+      CONCATENATE ls_glacct_data-gl_account 'DCOA'
+       INTO lw_text_name.
+
+* Loop through the different text types and populate the main
+* internal table with the values from the DB.
+      LOOP AT lt_ttxit INTO ls_ttxit.
+
+        CALL FUNCTION 'READ_TEXT'
+          EXPORTING
+            client                  = sy-mandt
+            id                      = ls_ttxit-tdid
+            language                = lw_tdspras
+            name                    = lw_text_name
+            object                  = 'SKA1'
+*           ARCHIVE_HANDLE          = 0
+*           LOCAL_CAT               = ' '
+*             IMPORTING
+*           HEADER                  =
+*           OLD_LINE_COUNTER        =
+          TABLES
+            lines                   = lt_text_lines
+          EXCEPTIONS
+            id                      = 1
+            language                = 2
+            name                    = 3
+            not_found               = 4
+            object                  = 5
+            reference_check         = 6
+            wrong_access_to_archive = 7
+            OTHERS                  = 8.
+
+        IF sy-subrc EQ 0.  "One or more text data rows were retrieved
+
+          CASE ls_ttxit-tdtext.
+            WHEN 'Acct Definition'.
+
+              LOOP AT lt_text_lines INTO ls_text_lines.
+
+                CONCATENATE ls_glacct_data-definition
+                            ls_text_lines-tdline
+                       INTO ls_glacct_data-definition
+                       SEPARATED BY space.
+
+              ENDLOOP.
+
+            WHEN 'Acct Includes'.
+
+              LOOP AT lt_text_lines INTO ls_text_lines.
+
+                CONCATENATE ls_glacct_data-includes
+                            ls_text_lines-tdline
+                       INTO ls_glacct_data-includes
+                       SEPARATED BY space.
+
+              ENDLOOP.
+
+            WHEN 'Acct Excludes'.
+
+              LOOP AT lt_text_lines INTO ls_text_lines.
+
+                CONCATENATE ls_glacct_data-excludes
+                            ls_text_lines-tdline
+                       INTO ls_glacct_data-excludes
+                       SEPARATED BY space.
+
+              ENDLOOP.
+
+
+            WHEN OTHERS.
+* Do nothing
+          ENDCASE.
+
+        ENDIF.
+
+      ENDLOOP.
+
+      SHIFT ls_glacct_data-gl_account LEFT DELETING LEADING '0'.
+
+      MODIFY lt_glacct_data FROM ls_glacct_data
+       TRANSPORTING gl_account definition includes excludes.
+
+      CLEAR ls_glacct_data.
+
+    ENDLOOP.
+
+  ENDIF.
+
+*  if lw_string_type = 'NUMC'.  "Single GL Account search only
+*    glacct_data[] = lt_glacct_data[].
+*  else.
+  LOOP AT lt_glacct_data INTO ls_glacct_data.
+*    if ( not ls_glacct_data-gl_account is initial
+*       and ls_glacct_data-gl_account cs lw_search )
+*       or ( not ls_glacct_data-company is initial
+*       and ls_glacct_data-company cs lw_search )
+*       or ( not ls_glacct_data-definition is initial
+*       and ls_glacct_data-definition cs lw_search )
+*       or ( not ls_glacct_data-includes is initial
+*       and ls_glacct_data-includes cs lw_search )
+*       or ( not ls_glacct_data-excludes is initial
+*       and ls_glacct_data-excludes cs lw_search ).
+    IF lw_search IS INITIAL.
+      APPEND ls_glacct_data TO rt_gl_accounts.
+    ELSE.
+      IF ls_glacct_data-gl_account CS lw_search OR
+         ls_glacct_data-gl_account_desc CS lw_search OR
+        ls_glacct_data-definition CS lw_search OR
+        ls_glacct_data-includes CS lw_search OR
+        ls_glacct_data-excludes CS lw_search .
+        APPEND ls_glacct_data TO rt_gl_accounts.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+
+  SORT rt_gl_accounts BY gl_account ASCENDING.
+
+  DELETE ADJACENT DUPLICATES FROM rt_gl_accounts.
+*  endif.
+ENDMETHOD.
+
+
+method get_gl_accounts_hierarchy.
+
+* VERSION CONTROL
+*
+* Date     Author    CTS Req    Dev Script     Description
+*-----------------------------------------------------------------------
+* 29.09.22 010965MI  RD2K923161 DS-11-32-07-01 S 6000002831: MyFi Continuous Improvement November Rel - Performance improvements
+*-----------------------------------------------------------------------
+
+  types:
+    begin of ty_bs_info,
+*   info about BS given out to clients
+      ktopl type t011-ktopl,
+      xauto type t011-xauto,
+      type  type i,
+    end of ty_bs_info.
+
+  data:
+    lv_finversion   type char4,
+    lv_hier_options type char1.
+  data:
+    lv_sylang_not_fnd type char100,
+    lv_maint_langu    type sy-langu,
+    lv_level          type n length 2,
+    lv_ktopl          type string,
+    lv_saknr_low      type string,
+    lv_sep            type string,
+    lv_saknr_high     type string,
+    lv_text           type string,
+    lv_gl_account	    type char10,
+    lv_row_number     type i.
+
+
+  data:
+    lt_hierarchy_filter	type zfss_gl_account_hierarchy_tt,
+    ls_hier_out         type zsfss_gl_account_hierarchy,
+    ls_node_tab         type snodetext,
+    lt_node_tab         type standard table of snodetext,
+    ls_ska1             type ska1,
+    ls_skat             type skat,
+    ls_root_id          type fibs_bs_node_id,
+    ls_bs_info          type ty_bs_info.
+
+  field-symbols:
+      <ls_hierarchy>      type zsfss_gl_account_hierarchy.
+  clear ZCL_LFC_COAS=>gv_child_id.
+
+  if iv_finversion is not initial. " and iv_hier_options is not initial.
+* Move parameters to local fields
+    lv_finversion = iv_finversion.
+    if iv_hier_options is not initial.
+      lv_hier_options = iv_hier_options.
+    elseif iv_cashflow = abap_true.
+      lv_hier_options = 'A'.
+    else. "It will be "COAN" = i.e. don't show COA nodes in hierarchy
+      lv_hier_options = 'N'.
+    endif.
+  else.
+    if iv_cashflow = abap_true.
+      lv_hier_options = 'A'.
+    else. "It will be "COAN" = i.e. don't show COA nodes in hierarchy
+      lv_hier_options = 'N'.
+    endif.
+
+    if iv_show_coa eq abap_true.
+      case iv_control_type.
+        when 'D'."//Departmental
+          lv_finversion = 'CFV3'.
+        when 'A'."//Administered
+          lv_finversion = 'CFV2'.
+        when 'S'."//Special Public Monies
+          lv_finversion = 'SPM1'.
+      endcase.
+    else." // Can only be "Income Statement and Balance Sheet Hierarchy" as 2 radio buttons only
+      case iv_control_type.
+        when 'D'."//Departmental
+          lv_finversion = 'FSV1'.
+        when 'A'."//Administered
+          lv_finversion = 'FSV2'.
+        when 'S'."//Special Public Monies
+          lv_finversion = 'SPM1'.
+      endcase.
+    endif.
+  endif.
+
+* Initialise options flag if space.
+  if lv_hier_options = space.
+    lv_hier_options = 'S'.
+  endif.
+
+* Validate options flag
+  if not ( lv_hier_options = 'S' ) and
+     not ( lv_hier_options = 'A' ) and
+     not ( lv_hier_options = 'N' ).
+
+    "  raise invalid_options.
+  endif.
+
+* Check if the Financial Statement Version passed in is valid
+* Load the version
+  call function 'FI_BS_LOAD'
+    exporting
+      version         = lv_finversion
+    importing
+      bs_info         = ls_bs_info
+    exceptions
+      not_found       = 1
+      pos_not_found   = 2
+      langu_not_found = 3
+      others          = 4.
+
+  if sy-subrc <> 0.
+    " raise finversion_invalid.
+  else.
+
+
+
+    call function 'FI_BS_LOAD_LANGU'
+      exporting
+        flg_langu_maint       = abap_false
+      importing
+        flg_sylangu_not_found = lv_sylang_not_fnd
+        maint_langu           = lv_maint_langu
+      exceptions
+        others                = 1.
+* if maintenance language was loaded, because sy-langu was not found
+    if lv_sylang_not_fnd = abap_true.
+*    message s741 with sy-langu maint_langu.
+    endif.
+
+** if maintenance language is wanted, but is different from SY-LANGU
+** tell him
+*    if lv_langu_maint = abap_true and lv_maint_langu <> sy-langu.
+**    message s742 with maint_langu gw_versn.
+*    endif.
+  endif.
+
+
+* Get the root
+  call function 'FI_BS_GET_ROOT'
+    importing
+      root_id   = ls_root_id
+    exceptions
+      not_found = 01.
+
+  ZCL_LFC_COAS=>gv_child_id = 1.
+
+* Recursively add nodes
+
+  call method ZCL_LFC_COAS=>add_node_with_subtree
+    exporting
+      iv_level     = 0
+      iv_parent_id = 0
+      is_node_id   = ls_root_id
+    changing
+      ct_node_tab  = lt_node_tab.
+
+  lv_row_number = 1.
+
+* Move the data to the output table that the function will return
+  loop at lt_node_tab into ls_node_tab.
+* If one of the input flags is set, we need to retrieve the GL account
+* details for the nodes of type "A" that have a range where the low
+* and high SAKNR values are equal.  e.g. "COA 0000018010 - 0000018010".
+* The standard extract functions do not retrieve the GL rows for these
+* entries.  They only retrieve GL rows for ranges that cover more than
+* one GL - i.e. the low and high values in the "A" row are not equal.
+* Note that the preference of the DFG BAU team is to use the "N" option.
+
+    ls_hier_out-node_id = ls_node_tab-id.
+    ls_hier_out-parent_id = ls_node_tab-parent.
+
+
+    if lv_hier_options = 'A' or lv_hier_options = 'N'.
+      if ls_node_tab-type = 'A'.
+
+        lv_level = ls_node_tab-tlevel.
+
+        split ls_node_tab-name at space
+         into lv_ktopl
+              lv_saknr_low
+              lv_sep
+              lv_saknr_high.
+
+        if lv_saknr_low = lv_saknr_high.  "Not a range
+
+          if lv_hier_options = 'A'.   "Keep "A" row - append it
+            ls_hier_out-rownumber = lv_row_number.
+            ls_hier_out-nodetype = ls_node_tab-type.
+            ls_hier_out-nodename = ls_node_tab-name.
+            ls_hier_out-nodelevel = ls_node_tab-tlevel.
+            ls_hier_out-nodetext = ls_node_tab-text.
+            ls_hier_out-fin_stat_version = lv_finversion.
+            append ls_hier_out to rt_hierarchy_data .
+            lv_level = ls_node_tab-tlevel + 1.
+
+            lv_row_number = lv_row_number + 1.
+          endif.
+
+* check if account exists in chart of accounts - must exist as data
+* came from SAP hierarchy, but check anyway.
+          select single *
+            from ska1
+            into ls_ska1
+           where ktopl = lv_ktopl
+             and saknr = lv_saknr_low
+             and xspeb = space.  "Don't get blocked for posting GLs
+
+          if sy-subrc = 0.  "Only populate GL node if valid account
+
+* First: display language of structure
+            select single *
+              from  skat
+              into ls_skat
+             where spras = sy-langu "'EN'
+               and ktopl = lv_ktopl
+               and saknr = lv_saknr_low.
+
+            if sy-subrc <> 0.
+              lv_text = 'No text found'.
+            else.
+              if not ls_skat-txt50 is initial.
+                lv_text = ls_skat-txt50.
+              elseif not ls_skat-txt20 is initial.
+                lv_text = ls_skat-txt20.
+              else.
+                lv_text = 'No text found'.
+              endif.
+            endif.
+
+            ls_hier_out-rownumber = lv_row_number.
+            add 1000000 to ls_hier_out-node_id.
+            ls_hier_out-nodetype = 'G'. "GL Account node type
+            shift lv_saknr_low left deleting leading '0'.
+            ls_hier_out-nodename = lv_saknr_low.
+            ls_hier_out-nodelevel = lv_level.
+            ls_hier_out-nodetext = lv_text.
+            ls_hier_out-fin_stat_version = lv_finversion.
+            append ls_hier_out to rt_hierarchy_data.
+            lv_row_number = lv_row_number + 1.
+
+          endif.
+        else.  "It's a range - keep the A node if flag says to do so
+          if lv_hier_options = 'A'.   "Keep "A" node - append it
+            ls_hier_out-rownumber = lv_row_number.
+            ls_hier_out-nodetype = ls_node_tab-type.
+            ls_hier_out-nodename = ls_node_tab-name.
+            ls_hier_out-nodelevel = ls_node_tab-tlevel.
+            ls_hier_out-nodetext = ls_node_tab-text.
+            ls_hier_out-fin_stat_version = lv_finversion.
+            append ls_hier_out to rt_hierarchy_data.
+
+            lv_level = ls_node_tab-tlevel + 1.
+
+            lv_row_number = lv_row_number + 1.
+          endif.
+
+        endif.  " low = high
+
+      else.  "Not an 'A' type node so keep / append
+        if ls_node_tab-type = 'G'.  "GL Account node below A range node
+          ls_hier_out-nodelevel = lv_level.
+
+* check if account exists in chart of accounts - must exist as data
+* came from SAP hierarchy, but check anyway.
+          select single *
+            from ska1
+            into ls_ska1
+           where ktopl = lv_ktopl
+             and saknr = ls_node_tab-name
+             and xspeb = space.  "Don't get blocked for posting GLs
+
+          if sy-subrc = 0.  "Only populate GL node if valid account
+            ls_hier_out-rownumber = lv_row_number.
+            ls_hier_out-nodetype = ls_node_tab-type.
+            shift ls_node_tab-name left deleting leading '0'.
+            ls_hier_out-nodename = ls_node_tab-name.
+            ls_hier_out-nodetext = ls_node_tab-text.
+            ls_hier_out-fin_stat_version = lv_finversion.
+            append ls_hier_out to rt_hierarchy_data.
+            lv_row_number = lv_row_number + 1.
+          endif.
+
+        else.
+          ls_hier_out-nodelevel = ls_node_tab-tlevel.
+
+          ls_hier_out-rownumber = lv_row_number.
+          ls_hier_out-nodetype = ls_node_tab-type.
+          shift ls_node_tab-name left deleting leading '0'.
+          ls_hier_out-nodename = ls_node_tab-name.
+          ls_hier_out-nodetext = ls_node_tab-text.
+          ls_hier_out-fin_stat_version = lv_finversion.
+          append ls_hier_out to rt_hierarchy_data.
+          lv_row_number = lv_row_number + 1.
+        endif.
+      endif.
+
+    else. "not opt's 'A' or 'N' (i.e. standard) so keep all rows/nodes
+      ls_hier_out-rownumber = lv_row_number.
+      ls_hier_out-nodetype = ls_node_tab-type.
+      ls_hier_out-nodename = ls_node_tab-name.
+      ls_hier_out-nodelevel = ls_node_tab-tlevel.
+      ls_hier_out-nodetext = ls_node_tab-text.
+      ls_hier_out-fin_stat_version = lv_finversion.
+      append ls_hier_out to rt_hierarchy_data.
+      lv_row_number = lv_row_number + 1.
+    endif.
+
+*    if sy-tabix = 4.
+*      exit.
+*      endif.
+    if iv_gl_account is not initial and ls_hier_out-nodename eq iv_gl_account and ls_hier_out-nodetype ne 'P'.
+      "Found the GL account, so no point looking any further.
+      " The internal table was filled recursively, so all the parents are already in rt_hierarchy_data
+      exit.
+    endif.
+  endloop.
+
+  lv_gl_account = iv_gl_account.
+
+  if lv_gl_account is not initial.
+    lt_hierarchy_filter = rt_hierarchy_data.
+    clear rt_hierarchy_data.
+    loop at lt_hierarchy_filter assigning <ls_hierarchy> where nodename eq lv_gl_account.
+      ls_hier_out = <ls_hierarchy>.
+      append <ls_hierarchy> to rt_hierarchy_data.
+    endloop.
+    if rt_hierarchy_data is not initial.
+      do.
+        read table lt_hierarchy_filter assigning <ls_hierarchy> with key node_id = ls_hier_out-parent_id.
+        if sy-subrc = 0.
+          append <ls_hierarchy> to rt_hierarchy_data.
+          ls_hier_out = <ls_hierarchy>.
+        else.
+          exit.
+        endif.
+      enddo.
+      sort rt_hierarchy_data by node_id ascending.
+    endif.
+    if rt_hierarchy_data is initial.
+
+      if iv_finversion is initial.
+        " the requested GL account is not in the default hiararchy.  Check if it is in FSV1.
+        rt_hierarchy_data = ZCL_LFC_COAS=>get_gl_accounts_hierarchy( iv_finversion     = 'FSV1'
+                                                                           iv_hier_options   = 'A'
+                                                                           iv_gl_account     = lv_gl_account ).
+      else.
+        read table lt_hierarchy_filter assigning <ls_hierarchy> index 1.
+        append <ls_hierarchy> to rt_hierarchy_data.
+      endif.
+    endif.
+  endif.
+
+endmethod.
+
+
+method get_hierarchy.
+
+* VERSION CONTROL
+*
+* Date     Author    CTS Req    Dev Script     Description
+*-----------------------------------------------------------------------
+* 29.09.22 010965MI  RD2K923161 DS-11-32-07-01 S 6000002831: MyFi Continuous Improvement November Rel - Performance improvements
+*-----------------------------------------------------------------------
+
+  data: lt_nodes            type gseth_node_tab,
+        lt_node_parents     type gseth_node_tab,
+        lt_values           type gseth_val_tab,
+*        lt_master_data      type gseth_md_tab,
+        lt_hierarchy_filter type zfss_hierarchy_tt.
+
+  data: ls_master_data type grphp1,
+        ls_structure   type grphp2,
+        ls_prev_node   type gseth_node_line,
+        ls_hierarchy   type zsfss_hierarchy,
+        ls_info        type grphinfo.
+
+  data: lv_overwrite type sy-datar,
+        lv_class     type sethier-setclass,
+        lv_setid     type sethier-setid,
+        lv_kokrs     type sethier-kokrs,
+        lv_dc        type char1.
+
+  field-symbols:
+    <lv_fikrs>     type char4,
+    <ls_node>      type gseth_node_line,
+    <ls_value>     type gseth_val_line,
+*    <ls_master_data> type gseth_md_line,
+    <ls_hierarchy> type zsfss_hierarchy.
+
+  ls_master_data-breakint = abap_true.
+*  ls_master_data-mdcheck = abap_true.
+*  ls_master_data-showtxt = abap_true.
+
+  ls_structure-countlines = '00'.
+  ls_structure-text = abap_true.
+  ls_structure-woendnodes = abap_true.
+  ls_structure-exptolevel = '02'.
+
+  if iv_filter is not initial.
+    data(lr_filter) = value mmpurui_range_tty(
+        ( sign   = rs_c_range_sign-including
+          option = rs_c_range_opt-pattern
+          low    = iv_filter ) ).
+  endif.
+
+  case iv_hierarchy_type.
+    when 'IO'. "Internal Order
+      lv_class = '0103'.
+*      lv_setid = '0103000000.IO01'.
+      lv_setid = |0103| &&
+                  zcl_lfc_util=>read_variable( i_vnam = 'INTERNAL_ORDER_HIER'
+                                                        i_default = '000000.IO01' ).
+      lv_kokrs = 'CA01'.
+
+      select  aufnr as name, ktext as description
+             from  aufk
+             into table @data(lt_md_text)
+             where  aufnr  in @lr_filter.
+
+    when 'FC'. "Fund Code
+      lv_class = '0111'.
+*      lv_setid = '0111FM011000000.FU01' .
+      lv_setid = |0111FM01| &&
+                  zcl_lfc_util=>read_variable( i_vnam = 'FUND_HIER'
+                                                        i_default = '1000000.FU01' ).
+      lv_kokrs = 'FM01'.
+      select  fincode as name,   beschr as description
+             from  fmfint
+             into corresponding fields of table @lt_md_text
+             where  spras    = @sy-langu
+             and    fikrs    = @lv_kokrs
+             and    fincode  in @lr_filter.
+
+  endcase.
+
+  lv_dc = '0'.
+
+  call function 'K_SET_HIERARCHY_INIT'  .
+
+  assign ('(SAPLKKHI)global_fikrs') to <lv_fikrs>.
+  if sy-subrc = 0.
+    <lv_fikrs> = lv_kokrs.
+  endif.
+
+  call function 'K_HIERARCHY_TABLES_READ'
+    exporting
+      e_class                     = lv_class
+      e_setid                     = lv_setid
+      e_kokrs                     = lv_kokrs
+      e_mandt                     = sy-mandt
+      e_old_line_level            = 1
+      e_master_data               = ls_master_data
+      e_structure                 = ls_structure
+    importing
+      i_master_data               = ls_master_data
+      i_double_check              = lv_dc
+    tables
+      t_nodes                     = lt_nodes
+      t_values                    = lt_values
+"     t_master_data               = lt_master_data
+    changing
+      c_info                      = ls_info
+      c_overwrite                 = lv_overwrite
+    exceptions
+      no_controlling_area         = 1
+      no_chart_of_account         = 2
+      different_controlling_areas = 3
+      different_chart_of_accounts = 4
+      set_not_found               = 5
+      illegal_field_replacement   = 6
+      illegal_table_replacement   = 7
+      fm_raise                    = 8
+      convert_error               = 9
+      no_overwrite_standard_hier  = 10
+      no_bukrs_for_kokrs          = 11
+      others                      = 12.
+  if sy-subrc = 0.
+
+    " t_nodes is a horrible thing.  It is the node hierarchy, but it does not have any relationships in the fields
+    " It is just the sequential list of the nodes ready to display in a list viewer, with an indent level.
+    "
+    " Need to work out the parent relationships so that we can return RT_HIERARCY in a form that can be used.
+    loop at lt_nodes assigning <ls_node>.
+      ls_hierarchy-node_id = <ls_node>-setid.
+      concatenate <ls_node>-shortname '-' <ls_node>-descript into ls_hierarchy-node_description separated by space.
+
+      if <ls_node>-hlevel = 0.
+        " Has no parent
+      elseif <ls_node>-hlevel = ls_prev_node-hlevel.
+        " Same level as the last node - same parent
+      elseif <ls_node>-hlevel > ls_prev_node-hlevel.
+        " Down 1 level - the previous node IS the parent.
+        ls_hierarchy-node_parent_id = ls_prev_node-setid.
+        insert ls_prev_node into lt_node_parents index 1.
+      else.   "<ls_node>-hlevel < ls_prev_node-hlevel
+        " Up a level.
+        " The previous node in the table does not tell us anything
+        " Need to get the last node which was one level above this one.
+        while ls_prev_node-hlevel >= <ls_node>-hlevel.
+          delete lt_node_parents index 1.
+          read table lt_node_parents into ls_prev_node index 1.
+        endwhile.
+        ls_hierarchy-node_parent_id = ls_prev_node-setid.
+      endif.
+
+      append ls_hierarchy to rt_hierarchy.
+
+      ls_prev_node = <ls_node>.
+    endloop.
+
+    " Add the leaf nodes (Fund, Order)
+    if iv_filter is not initial.
+      delete lt_values where  vfrom ne iv_filter.
+    endif.
+    loop at lt_values assigning <ls_value>.
+      ls_hierarchy-node_id = <ls_value>-vfrom.
+      ls_hierarchy-node_parent_id = <ls_value>-setid.
+      read table lt_md_text assigning field-symbol(<md_text>) with key name = <ls_value>-vfrom.
+      if sy-subrc = 0.
+        ls_hierarchy-node_description = |{ <md_text>-name alpha = out } - { <md_text>-description }|.
+      else.
+        ls_hierarchy-node_description = <ls_value>-vfrom.
+      endif.
+      append ls_hierarchy to rt_hierarchy.
+    endloop.
+
+  endif.
+
+  " A filter can be supplied with a single fund or order.  Read that leaf node and get all its parents
+  if iv_filter is not initial.
+    lt_hierarchy_filter = rt_hierarchy.
+    clear rt_hierarchy.
+    read table lt_hierarchy_filter assigning <ls_hierarchy> with key node_id = iv_filter.
+    if sy-subrc is initial.
+      append <ls_hierarchy> to rt_hierarchy.
+      while <ls_hierarchy>-node_parent_id is not initial.
+        read table lt_hierarchy_filter assigning <ls_hierarchy> with key node_id = <ls_hierarchy>-node_parent_id.
+        insert <ls_hierarchy> into rt_hierarchy index 1.
+      endwhile.
+    endif.
+  endif.
+
+endmethod.
+
+
+method get_internal_orders.
+*----------------------------------------------------------------------*
+* METHOD ID:          GET_INTERNAL_ORDERS
+* DESCRIPTION:        This method is used by the UI5 Chart Of Accounts
+*                     search application to retrieve Internal Order
+*                     data.
+*
+* AUTHOR:             Brad Pokroy
+* CREATE DATE:        10 May 2019
+* R/3 RELEASE VERSION: ECC6
+*
+* ACTIVITY:           AD-11-32-05 CoA Search
+* CR Number:          6000001455: CFOG BAR 2018-28 DFG Self-Service App
+*-----------------------------------------------------------------------
+* VERSION CONTROL
+*
+* Date     Author    CTS Req    Dev Script     Description
+*-----------------------------------------------------------------------
+* 26.07.19 070667JPS RD2K918249 DS-11-32-05-01 S 6000001628: DFG UI5 -
+*                                              CoA search App Short
+*                                              dumps.  Changed SQL
+*                                              select (removed "LIKE").
+*-----------------------------------------------------------------------
+  data: lv_search type string.
+* Following added for CR RD2K918249
+  data:
+    lt_internal_orders  type standard table of zsfss_internal_order,
+    ls_internal_orders  type zsfss_internal_order.
+
+* Following block commented for CR RD2K918249
+*  lv_search = convert_search_term( iv_search ).
+*
+**--- read the data
+*  select aufnr ktext objnr
+*   "up to 500 rows
+*    from aufk
+*    into corresponding fields of table rt_internal_orders
+*    where autyp eq '1'
+*    and ( aufnr like lv_search or ktext like lv_search ).
+* End of commented block for CR RD2K918249
+
+* Following block added for CR RD2K918249
+*--- read the data
+  select aufnr ktext objnr
+    from aufk
+    into corresponding fields of table lt_internal_orders
+    where autyp eq '1'.
+
+* Find the records that we need
+  loop at lt_internal_orders into ls_internal_orders.
+    if ls_internal_orders-aufnr cs iv_search
+     or ls_internal_orders-ktext cs iv_search.
+
+      append ls_internal_orders to rt_internal_orders.
+
+    endif.
+  endloop.
+
+endmethod.
+
+
+method get_wbs_elements.
+*----------------------------------------------------------------------*
+* METHOD ID:          GET_WBS_ELEMENTS
+* DESCRIPTION:        This method is used by the UI5 Chart Of Accounts
+*                     search application to retrieve WBS Element data.
+*
+* AUTHOR:             Brad Pokroy
+* CREATE DATE:        10 May 2019
+* R/3 RELEASE VERSION: ECC6
+*
+* ACTIVITY:           AD-11-32-05 CoA Search
+* CR Number:          6000001455: CFOG BAR 2018-28 DFG Self-Service App
+*-----------------------------------------------------------------------
+* VERSION CONTROL
+*
+* Date     Author    CTS Req    Dev Script     Description
+*-----------------------------------------------------------------------
+* 26.07.19 070667JPS RD2K918249 DS-11-32-05-01 S 6000001628: DFG UI5 -
+*                                              CoA search App Short
+*                                              dumps.  Changed SQL
+*                                              select (removed "LIKE").
+*-----------------------------------------------------------------------
+
+* Following type added for CR RD2K918249
+  types:
+    begin of typ_wbs.
+          include type zsfss_wbs_element.
+  types:
+      postu               type prps-postu,
+    end of typ_wbs.
+
+  data: lv_search type string.
+* Following added for CR RD2K918249
+  data:
+    ls_wbs_elements     type zsfss_wbs_element,
+    lt_wbs_elements_tmp type standard table of typ_wbs,
+    ls_wbs_elements_tmp type typ_wbs.
+
+* Following block commented for CR RD2K918249
+*  lv_search = convert_search_term( iv_search ).
+*
+**--- read the data
+*  select ww~posid ww~post1 pp~post1 as zpost1
+*    "up to 500 rows
+*    from prps as ww
+*      left outer join proj as pp
+*      on pp~pspnr = ww~psphi
+*    into corresponding fields of table rt_wbs_elements
+*    where ( ww~posid like lv_search or ww~postu like lv_search ).
+* End of commented block for CR RD2K918249
+
+* Following block added for CR RD2K918249
+*--- read the data
+  select ww~posid ww~post1 pp~post1 as zpost1
+    from prps as ww
+      left outer join proj as pp
+      on pp~pspnr = ww~psphi
+    into corresponding fields of table lt_wbs_elements_tmp.
+
+* Find the records that we need
+  loop at lt_wbs_elements_tmp into ls_wbs_elements_tmp.
+    if ls_wbs_elements_tmp-posid cs iv_search
+     or ls_wbs_elements_tmp-post1 cs iv_search
+     or ls_wbs_elements_tmp-zpost1 cs iv_search
+     or ls_wbs_elements_tmp-postu cs iv_search.
+
+      move-corresponding ls_wbs_elements_tmp to ls_wbs_elements.
+
+      append ls_wbs_elements to rt_wbs_elements.
+
+    endif.
+  endloop.
+
+  sort rt_wbs_elements by posid ascending.
+
+endmethod.
+ENDCLASS.

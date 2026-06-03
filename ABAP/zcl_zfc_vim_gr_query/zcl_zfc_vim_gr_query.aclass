@@ -1,0 +1,214 @@
+class zcl_zfc_vim_gr_query definition
+  public
+  final
+  create public .
+
+  public section.
+    interfaces if_rap_query_provider.
+
+  protected section.
+  private section.
+endclass.
+
+
+
+class zcl_zfc_vim_gr_query implementation.
+
+
+  method if_rap_query_provider~select.
+
+    data lt_result type standard table of zc_zfc_vim_gr_ce.
+
+    " ---------------------------------------------------------------
+    " 1. Extract filter conditions from the framework
+    " ---------------------------------------------------------------
+    try.
+        data(lt_filter) = io_request->get_filter( )->get_as_ranges( ).
+      catch cx_rap_query_filter_no_range.
+        io_response->set_total_number_of_records( 0 ).
+        io_response->set_data( lt_result ).
+        return.
+    endtry.
+
+    data: lr_purchase_order type range of ebeln,
+          lr_vim_doc_id     type range of /opt/docid.
+
+    loop at lt_filter into data(ls_filter).
+      case ls_filter-name.
+        when 'PURCHASEORDER'.
+          move-corresponding ls_filter-range to lr_purchase_order.
+        when 'VIMDOCUMENTID'.
+          move-corresponding ls_filter-range to lr_vim_doc_id.
+      endcase.
+    endloop.
+
+    " No PO filter = nothing to return
+    if lr_purchase_order is initial.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      return.
+    endif.
+
+    " ---------------------------------------------------------------
+    " 1a. GUARD: Verify PO exists before querying EKBE
+    " ---------------------------------------------------------------
+    data lv_po_value type ebeln.
+    read table lr_purchase_order index 1 into data(ls_po_range).
+    if sy-subrc = 0.
+      lv_po_value = ls_po_range-low.
+    endif.
+
+    if lv_po_value is initial.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      return.
+    endif.
+
+    select single ebeln from ekko
+      where ebeln = @lv_po_value
+      into @data(lv_po_exists).
+    if sy-subrc <> 0.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      return.
+    endif.
+
+    " ---------------------------------------------------------------
+    " 2. Fetch GR data from EKBE (PO History)
+    " ---------------------------------------------------------------
+    select ekbe~ebeln              as purchaseorder,
+           ekbe~ebelp              as purchaseorderitem,
+           ekbe~zekkn              as sequencenumber,
+           ekbe~vgabe              as transactiontype,
+           ekbe~gjahr              as fiscalyear,
+           ekbe~belnr              as materialdocument,
+           ekbe~buzei              as materialdocumentitem,
+           ekbe~menge              as quantity,
+           ekbe~bpmng              as quantityinpounit,
+           ekbe~dmbtr              as amountinlocalcurrency,
+           ekbe~wrbtr              as amount,
+           ekbe~arewr              as invoicedamount,
+           ekbe~waers              as currency,
+           ekbe~mwskz              as taxcode,
+           ekbe~budat              as postingdate,
+           ekbe~cpudt              as entrydate,
+           ekbe~matnr              as material,
+           ekbe~werks              as plant,
+           ekbe~bwart              as movementtype,
+           ekbe~shkzg              as debitcreditindicator,
+           ekbe~lfbnr              as deliverynote,
+           ekbe~xblnr              as referencedocument
+      from ekbe
+     where ekbe~ebeln in @lr_purchase_order
+       and ekbe~vgabe  = '1'
+       and ( ekbe~bwart = '101'
+          or ekbe~bwart = '102'
+          or ekbe~bwart = '161' )
+      into table @data(lt_raw).
+
+    if lt_raw is initial.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      return.
+    endif.
+
+    " ---------------------------------------------------------------
+    " 3. Get material document items for unit/storage location
+    " ---------------------------------------------------------------
+    types: begin of ty_matdoc_key,
+             belnr type mblnr,
+             gjahr type gjahr,
+             buzei type mblpo,
+           end of ty_matdoc_key.
+
+    data lt_matdoc_keys type sorted table of ty_matdoc_key
+         with unique key belnr gjahr buzei.
+
+    loop at lt_raw into data(ls_raw_key).
+      insert value #( belnr = ls_raw_key-materialdocument
+                      gjahr = ls_raw_key-fiscalyear
+                      buzei = ls_raw_key-materialdocumentitem )
+        into table lt_matdoc_keys.
+    endloop.
+
+    if lt_matdoc_keys is not initial.
+      select mblnr, mjahr, zeile, meins, lgort
+        from matdoc
+        for all entries in @lt_matdoc_keys
+       where mblnr = @lt_matdoc_keys-belnr
+         and mjahr = @lt_matdoc_keys-gjahr
+         and zeile = @lt_matdoc_keys-buzei
+        into table @data(lt_matdoc_items).
+    endif.
+
+    " ---------------------------------------------------------------
+    " 4. Build result set with calculated fields
+    " ---------------------------------------------------------------
+
+    " Safe-read VIM doc ID
+    data lv_vim_doc_id type /opt/docid.
+    if lr_vim_doc_id is not initial.
+      read table lr_vim_doc_id index 1 into data(ls_vim_range).
+      if sy-subrc = 0.
+        lv_vim_doc_id = ls_vim_range-low.
+      endif.
+    endif.
+
+    loop at lt_raw into data(ls_raw).
+      append initial line to lt_result assigning field-symbol(<fs>).
+      move-corresponding ls_raw to <fs>.
+
+      " Get unit from material document
+      sort lt_matdoc_items by mblnr mjahr zeile.
+      read table lt_matdoc_items into data(ls_mseg)
+        with key mblnr = ls_raw-materialdocument
+                 mjahr = ls_raw-fiscalyear
+                 zeile = ls_raw-materialdocumentitem.
+      if sy-subrc = 0.
+        <fs>-unit            = ls_mseg-meins.
+        <fs>-storagelocation = ls_mseg-lgort.
+      endif.
+
+      " Movement type text
+      case ls_raw-movementtype.
+        when '101'. <fs>-movementtypetext = 'Goods Receipt'.
+        when '102'. <fs>-movementtypetext = 'GR Reversal'.
+        when '161'. <fs>-movementtypetext = 'Returns'.
+        when others. <fs>-movementtypetext = 'Other'.
+      endcase.
+
+      " Available for matching check
+      if ls_raw-movementtype = '101'
+        and ls_raw-debitcreditindicator = 'S'
+        and ls_raw-deliverynote is initial.
+        <fs>-isavailableformatching = abap_true.
+        <fs>-remainingquantity      = ls_raw-quantity.
+      endif.
+
+      " Calculate unit price (amount / quantity)
+      if ls_raw-quantity > 0.
+        <fs>-unitprice = ls_raw-amount / ls_raw-quantity.
+      endif.
+
+      " Set VimDocumentId from filter
+      if lv_vim_doc_id is not initial.
+        <fs>-vimdocumentid = lv_vim_doc_id.
+      endif.
+
+      " Header text from reference document
+      <fs>-headertext = ls_raw-referencedocument.
+
+    endloop.
+
+    " ---------------------------------------------------------------
+    " 5. Handle paging and return results
+    " ---------------------------------------------------------------
+    if io_request->is_total_numb_of_rec_requested( ).
+      io_response->set_total_number_of_records( lines( lt_result ) ).
+    endif.
+
+    io_response->set_data( lt_result ).
+
+  endmethod.
+
+endclass.

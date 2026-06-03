@@ -1,0 +1,1417 @@
+CLASS lhc_vimdocument DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    TYPES: BEGIN OF ty_gr_item,
+             ebeln TYPE ebeln,
+             ebelp TYPE ebelp,
+             menge TYPE menge_d,
+             bpmng TYPE bpmng,
+             wrbtr TYPE wrbtr,
+             dmbtr TYPE dmbtr,
+             waers TYPE waers,
+             mwskz TYPE mwskz,
+             budat TYPE budat,
+             matnr TYPE matnr,
+             werks TYPE werks_d,
+             bwart TYPE bwart,
+             shkzg TYPE shkzg,
+             lfbnr TYPE lfbnr,
+             meins TYPE meins,
+             lgort TYPE lgort_d,
+           END OF ty_gr_item.
+
+    " ── Type for deserialised selected GR rows from UI ──
+    TYPES: BEGIN OF ty_selected_gr,
+             grdocnumber       TYPE mblnr,
+             grdocyear         TYPE mjahr,
+             grdocitem         TYPE mblpo,
+             po_number         TYPE ebeln,
+             po_item           TYPE ebelp,
+             quantitydelivered TYPE menge_d,
+             uom               TYPE meins,
+             unitprice         TYPE netpr,
+             taxcode           TYPE mwskz,
+             taxamount         TYPE wrbtr,
+             valueextax        TYPE wrbtr,
+             deliverynote      TYPE char25,
+             headertext        TYPE char25,
+             webre             TYPE webre,
+             showreversalind   TYPE c LENGTH 1,
+           END OF ty_selected_gr,
+           ty_selected_gr_tab TYPE STANDARD TABLE OF ty_selected_gr WITH EMPTY KEY.
+
+    TYPES: tt_gr_item TYPE STANDARD TABLE OF ty_gr_item WITH default key.
+
+    CONSTANTS:
+      gc_debit_indicator            TYPE c LENGTH 1 VALUE 'S',
+      gc_credit_indicator           TYPE c LENGTH 1 VALUE 'H',
+      gc_matched_ui5_app            TYPE c LENGTH 1 VALUE 'U',  " Matched via UI5 app
+      gc_status_rejected_by_approver TYPE /opt/vim_1head-status VALUE '13',
+      gc_proc_option_reject_by_poc  TYPE /opt/vim_t802-optionid VALUE '9004',
+      gc_proc_option_matched_grs    TYPE /opt/vim_t802-optionid VALUE '9005',
+      gc_proc_option_late_explain   TYPE /opt/vim_t802-optionid VALUE '9006',
+      gc_role_poc                   TYPE /opt/vim_t802-from_actor VALUE 'ZPOC',
+      gc_vim_object_type            TYPE swo_objtyp VALUE '/OPT/V1001',
+      gc_vim_event_completed        TYPE swr_struct-event VALUE 'PROCESSCOMPLETEDEXTERNALLY'.
+
+    " Non-actionable VIM statuses
+    CONSTANTS: BEGIN OF gc_inactive,
+                 s06 TYPE /opt/vim_1head-status VALUE '06', " Rescan Complete
+                 s08 TYPE /opt/vim_1head-status VALUE '08', " Confirmed Duplicate
+                 s10 TYPE /opt/vim_1head-status VALUE '10', " Obsolete
+                 s15 TYPE /opt/vim_1head-status VALUE '15', " Posted
+                 s16 TYPE /opt/vim_1head-status VALUE '16', " Deleted
+                 s18 TYPE /opt/vim_1head-status VALUE '18', " Blocked
+               END OF gc_inactive.
+
+    CONSTANTS gc_rejected_proc_type TYPE /opt/vim_1head-curr_proc_type VALUE '932'.
+
+    METHODS get_tax_rate
+      IMPORTING iv_company_code TYPE bukrs
+                iv_tax_code     TYPE mwskz
+                iv_currency     TYPE waers
+      RETURNING VALUE(rv_rate)  TYPE /OPT/VIM_TAX_RATE.
+
+    METHODS calculate_balance FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~calculatebalance RESULT result.
+
+    METHODS validate FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~validate RESULT result.
+
+    METHODS determine_vendor_name FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR vimdocument~determinevendorname.
+
+    METHODS determine_payment_terms_text FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR vimdocument~determinepaymenttermstext.
+
+    METHODS validate_status FOR VALIDATE ON SAVE
+      IMPORTING keys FOR vimdocument~validatestatus.
+
+    METHODS validate_duplicate_gr FOR VALIDATE ON SAVE
+      IMPORTING keys FOR vimdocument~validateduplicategr.
+
+    METHODS check_gr_quantity FOR VALIDATE ON SAVE
+      IMPORTING keys FOR vimdocument~checkgrquantity.
+
+    METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
+      IMPORTING request requested_authorizations FOR vimdocument RESULT result.
+
+    METHODS read_gr_items
+      IMPORTING iv_purchase_order TYPE ebeln
+      RETURNING VALUE(rt_result)  TYPE tt_gr_item.
+
+    METHODS get_attachment FOR MODIFY
+      IMPORTING keys FOR ACTION vimdocument~getattachment RESULT result.
+
+    " ── Private helpers ──
+    METHODS is_vim_status_actionable
+      IMPORTING iv_status    TYPE /opt/vim_1head-status
+                iv_proc_type TYPE /opt/vim_1head-curr_proc_type
+      RETURNING VALUE(rv_ok) TYPE abap_bool.
+
+    METHODS deserialise_gr_json
+      IMPORTING iv_json       TYPE string
+      RETURNING VALUE(rt_grs) TYPE ty_selected_gr_tab.
+
+    METHODS merge_non_webre_lines
+      CHANGING ct_grs TYPE ty_selected_gr_tab.
+
+    METHODS write_audit_header
+      IMPORTING iv_vimdocid     TYPE /opt/docid
+                iv_useraction   TYPE c
+                iv_currency     TYPE waers OPTIONAL
+                iv_grossamount  TYPE /opt/vim_1head-gross_amount OPTIONAL
+                iv_creditmemo   TYPE abap_bool DEFAULT abap_false
+      RETURNING VALUE(rv_sequence) TYPE i.
+
+    METHODS write_audit_items
+      IMPORTING iv_vimdocid  TYPE /opt/docid
+                iv_sequence  TYPE i
+                it_grs       TYPE ty_selected_gr_tab.
+
+    METHODS trigger_vim_event
+      IMPORTING iv_vimdocid TYPE /opt/docid.
+
+    " ── static action handlers ──
+    METHODS submit_gr FOR MODIFY IMPORTING keys FOR ACTION vimdocument~submitGR RESULT result.
+    METHODS reject    FOR MODIFY IMPORTING keys FOR ACTION vimdocument~reject   RESULT result.
+
+ENDCLASS.
+
+CLASS lhc_vimdocument IMPLEMENTATION.
+
+  METHOD read_gr_items.
+    " Centralised method to read GR items from EKBE
+    " Used by calculateBalance, validate, and submitGR
+    SELECT ekbe~ebeln,
+           ekbe~ebelp,
+           ekbe~menge,
+           ekbe~bpmng,
+           ekbe~wrbtr,
+           ekbe~dmbtr,
+           ekbe~waers,
+           ekbe~mwskz,
+           ekbe~budat,
+           ekbe~matnr,
+           ekbe~werks,
+           ekbe~bwart,
+           ekbe~shkzg,
+           ekbe~lfbnr
+      FROM ekbe
+     WHERE ekbe~ebeln = @iv_purchase_order
+       AND ekbe~vgabe = '1'
+       AND ( ekbe~bwart = '101'
+          OR ekbe~bwart = '102'
+          OR ekbe~bwart = '161' )
+      INTO TABLE @rt_result.
+
+    " Get unit and storage location from MATDOC
+    IF rt_result IS NOT INITIAL.
+      SELECT mblnr, mjahr, zeile, meins, lgort
+        FROM matdoc
+        FOR ALL ENTRIES IN @rt_result
+       WHERE mblnr = @rt_result-lfbnr
+         AND mjahr = @rt_result-budat(4)
+        INTO TABLE @DATA(lt_matdoc).
+
+      " Note: The MATDOC join above is simplified.
+      " For production, you may need to join on the actual
+      " material document number from EKBE (belnr/gjahr/buzei)
+      " rather than lfbnr. Adjust as needed.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD calculate_balance.
+    " Read the VIM document instance
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vimdocumentid purchaseorder companycode
+                 netamount taxamount grossamount currency creditmemo )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+
+      " Read GR items from EKBE
+      DATA(lt_gr_items) = read_gr_items( vim_doc-purchaseorder ).
+
+      " Get PO currency
+      DATA lv_currency TYPE waers.
+      SELECT SINGLE waers FROM ekko
+        INTO @lv_currency
+        WHERE ebeln = @vim_doc-purchaseorder.
+
+      DATA(calculated_net)   = CONV wrbtr( 0 ).
+      DATA(calculated_tax)   = CONV wrbtr( 0 ).
+      DATA(calculated_gross) = CONV wrbtr( 0 ).
+
+      " Calculate totals from available GR items
+      LOOP AT lt_gr_items INTO DATA(ls_gr)
+        WHERE bwart  = '101'
+          AND shkzg  = 'S'
+          AND lfbnr IS INITIAL.
+
+        " Get the tax rate for this line's tax code
+        DATA(lv_tax_rate) = get_tax_rate(
+          iv_company_code = vim_doc-companycode
+          iv_tax_code     = ls_gr-mwskz
+          iv_currency     = lv_currency ).
+
+        " Net amount is the GR line value (ex tax)
+        DATA(lv_line_net) = ls_gr-wrbtr.
+
+        " Calculate tax for this line
+        DATA(lv_line_tax) = CONV wrbtr( 0 ).
+        IF lv_tax_rate > 0.
+          lv_line_tax = lv_line_net * lv_tax_rate / 100.
+        ENDIF.
+
+        " Accumulate
+        calculated_net   = calculated_net   + lv_line_net.
+        calculated_tax   = calculated_tax   + lv_line_tax.
+
+      ENDLOOP.
+
+      " Gross = net + tax
+      calculated_gross = calculated_net + calculated_tax.
+
+      " Calculate balance (invoice gross minus calculated gross)
+      DATA(balance_difference) = CONV wrbtr( vim_doc-grossamount - calculated_gross ).
+
+      " Check tolerance (1 cent as per original implementation)
+      CONSTANTS lc_tolerance TYPE wrbtr VALUE '0.01'.
+      DATA(is_within_tolerance) = COND abap_boolean(
+        WHEN abs( balance_difference ) <= lc_tolerance THEN abap_true
+        ELSE abap_false ).
+
+      " Return the document as result
+      APPEND VALUE #(
+        %tky   = vim_doc-%tky
+        %param = vim_doc
+      ) TO result.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_tax_rate.
+    " Look up tax rate from configuration
+    " Uses the OpenText VIM function module which reads from
+    " tax condition tables (KONP/A003 etc.)
+    CALL FUNCTION '/OPT/GET_TAX_RATE'
+      EXPORTING
+        i_bukrs            = iv_company_code
+        i_mwskz            = iv_tax_code
+        i_rbkpv            = ''
+        i_waers            = iv_currency
+      IMPORTING
+        e_kbetr            = rv_rate
+      EXCEPTIONS
+        tax_rate_not_found = 1
+        OTHERS             = 2.
+
+    IF sy-subrc <> 0.
+      rv_rate = 0.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD validate.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        ALL FIELDS
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      DATA(has_errors) = abap_false.
+
+      " 1. Check status
+      CASE vim_doc-processstatus.
+        WHEN '06' OR '08' OR '10' OR '15' OR '16' OR '18'.
+          has_errors = abap_true.
+
+          APPEND VALUE #(
+            %tky = vim_doc-%tky
+            %msg = new_message(
+              id       = 'ZVIM_GR_APP'
+              number   = '001'
+              severity = if_abap_behv_message=>severity-error )
+          ) TO reported-vimdocument.
+      ENDCASE.
+
+      " 2. Check if GR already exists
+      SELECT SINGLE @abap_true
+        FROM mkpf
+        WHERE xblnr = @vim_doc-vimdocumentid
+          AND mjahr = @vim_doc-fiscalyear
+        INTO @DATA(gr_exists).
+
+      IF gr_exists = abap_true.
+        has_errors = abap_true.
+
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '006'
+            severity = if_abap_behv_message=>severity-error )
+        ) TO reported-vimdocument.
+      ENDIF.
+
+      " 3. Check GR items exist for this PO
+      DATA(lt_gr_items) = read_gr_items( vim_doc-purchaseorder ).
+
+      DATA(available_count) = 0.
+      LOOP AT lt_gr_items INTO DATA(ls_gr)
+        WHERE bwart  = '101'
+          AND shkzg  = 'S'
+          AND lfbnr IS INITIAL.
+        available_count = available_count + 1.
+      ENDLOOP.
+
+      IF available_count = 0.
+        has_errors = abap_true.
+
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '001'
+            severity = if_abap_behv_message=>severity-error )
+        ) TO reported-vimdocument.
+      ENDIF.
+
+      " Set result
+      APPEND VALUE #(
+        %tky   = vim_doc-%tky
+        %param = vim_doc
+      ) TO result.
+
+      IF has_errors = abap_true.
+        APPEND VALUE #( %tky = vim_doc-%tky ) TO failed-vimdocument.
+      ELSE.
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '002'
+            severity = if_abap_behv_message=>severity-success )
+        ) TO reported-vimdocument.
+      ENDIF.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD submit_gr.
+*----------------------------------------------------------------------*
+* Architecture: Static RAP action, no intermediate staging table,
+*               selected GR data arrives as JSON from the UI.
+* Scope:        Invoice only (credit memo deferred).
+*----------------------------------------------------------------------*
+
+    LOOP AT keys INTO DATA(ls_key).
+
+      DATA(lv_vimdocid)    = ls_key-%param-vimdocumentid.
+      DATA(lv_gr_json)     = ls_key-%param-selectedgrjson.
+      DATA(lv_late_reason) = ls_key-%param-latereasoncode.
+      DATA(lv_late_comment) = ls_key-%param-latecomment.
+
+      " ── 1. Read VIM document header ──────────────────────────────
+      SELECT SINGLE docid, status, curr_proc_type, credit_memo,
+                    ebeln, waers, gross_amount
+        FROM /opt/vim_1head
+        WHERE docid = @lv_vimdocid
+        INTO @DATA(ls_vim).
+
+      IF sy-subrc <> 0.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |VIM document { lv_vimdocid } not found.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " ── 2. Status check ─────────────────────────────────────────
+      IF is_vim_status_actionable( iv_status    = ls_vim-status
+                                   iv_proc_type = ls_vim-curr_proc_type ) = abap_false.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |VIM document { lv_vimdocid } is not in an active status for processing.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " ── 3. Credit memo guard ────────────────────────────────────
+      IF ls_vim-credit_memo IS NOT INITIAL.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |Credit memo processing is not yet implemented. Please contact support.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " ── 4. Deserialise selected GR rows ─────────────────────────
+      DATA(lt_grs) = deserialise_gr_json( lv_gr_json ).
+
+      IF lt_grs IS INITIAL.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |No goods receipts selected for matching.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " ── 5. Merge lines where GR-Based IV is OFF ────────────────
+      " (FD.79: Where GR based IV flagged off, all selected GRs per
+      "  PO Item have Quantity summed and added as a single VIM line)
+      merge_non_webre_lines( CHANGING ct_grs = lt_grs ).
+
+      " ── 6. Build new VIM line items ─────────────────────────────
+      DATA: lt_new_vim_lines TYPE TABLE OF /opt/vim_1item,
+            lt_comments      TYPE tlinetab,
+            lt_errors        TYPE bapiret2_t.
+
+      " Cache for PO header/items to avoid repeated BAPI calls
+      DATA: lv_cached_po     TYPE ebeln,
+            ls_po_header     TYPE bapimepoheader,
+            lt_po_items      TYPE TABLE OF bapimepoitem,
+            lt_po_return     TYPE TABLE OF bapiret2.
+
+      " Cache for GR header/items
+      DATA: lv_cached_gr_doc  TYPE mblnr,
+            lv_cached_gr_year TYPE mjahr,
+            ls_gr_header      TYPE bapi2017_gm_head_02,
+            lt_gr_items       TYPE TABLE OF bapi2017_gm_item_show,
+            lt_gr_return      TYPE TABLE OF bapiret2.
+
+      DATA lv_item_counter TYPE i.
+
+      LOOP AT lt_grs INTO DATA(ls_gr).
+        lv_item_counter += 1.
+
+        " ── Read PO details (cached per PO number) ──
+        IF ls_gr-po_number <> lv_cached_po.
+          CLEAR: ls_po_header, lt_po_items, lt_po_return.
+          CALL FUNCTION 'BAPI_PO_GETDETAIL1'
+            EXPORTING
+              purchaseorder = ls_gr-po_number
+            IMPORTING
+              poheader      = ls_po_header
+            TABLES
+              return        = lt_po_return
+              poitem        = lt_po_items.
+          IF ls_po_header IS INITIAL.
+            APPEND VALUE bapiret2( type = 'E'
+              message = |Error reading PO { ls_gr-po_number }| ) TO lt_errors.
+            CONTINUE.
+          ENDIF.
+          lv_cached_po = ls_gr-po_number.
+        ENDIF.
+
+        DATA(ls_po_item) = VALUE bapimepoitem( ).
+        READ TABLE lt_po_items INTO ls_po_item
+          WITH KEY po_item = ls_gr-po_item.
+        IF sy-subrc <> 0.
+          APPEND VALUE bapiret2( type = 'E'
+            message = |Error reading PO item { ls_gr-po_number }/{ ls_gr-po_item }| ) TO lt_errors.
+          CONTINUE.
+        ENDIF.
+
+        " ── Read GR details (cached per GR doc/year) ──
+        IF ls_gr-grdocnumber <> lv_cached_gr_doc OR ls_gr-grdocyear <> lv_cached_gr_year.
+          CLEAR: ls_gr_header, lt_gr_items, lt_gr_return.
+          CALL FUNCTION 'BAPI_GOODSMVT_GETDETAIL'
+            EXPORTING
+              materialdocument = ls_gr-grdocnumber
+              matdocumentyear  = ls_gr-grdocyear
+            IMPORTING
+              goodsmvt_header  = ls_gr_header
+            TABLES
+              goodsmvt_items   = lt_gr_items
+              return           = lt_gr_return.
+          IF ls_gr_header IS INITIAL.
+            APPEND VALUE bapiret2( type = 'E'
+              message = |Error reading GR { ls_gr-grdocnumber }/{ ls_gr-grdocyear }| ) TO lt_errors.
+            CONTINUE.
+          ENDIF.
+          lv_cached_gr_doc  = ls_gr-grdocnumber.
+          lv_cached_gr_year = ls_gr-grdocyear.
+        ENDIF.
+
+        " ── Compile new VIM line ──
+        DATA ls_vim_line TYPE /opt/vim_1item.
+        CLEAR ls_vim_line.
+
+        ls_vim_line-mandt  = sy-mandt.
+        ls_vim_line-docid  = lv_vimdocid.
+        ls_vim_line-itemid = lv_item_counter.
+        ls_vim_line-bukrs  = ls_po_header-comp_code.
+        ls_vim_line-ebeln  = ls_gr-po_number.
+        ls_vim_line-ebelp  = ls_gr-po_item.
+        ls_vim_line-sgtxt  = ls_po_item-short_text.
+        ls_vim_line-maktx  = ls_po_item-short_text.
+
+        " Invoice: debit indicator, quantity delivered
+        ls_vim_line-shkzg = gc_debit_indicator.
+        ls_vim_line-menge = ls_gr-quantitydelivered.
+
+        ls_vim_line-bstme      = ls_gr-uom.
+        ls_vim_line-netpr      = ls_gr-unitprice.
+        ls_vim_line-txjcd      = ls_po_item-taxjurcode.
+        ls_vim_line-tax_code1  = ls_gr-taxcode.
+        ls_vim_line-mwskz      = ls_gr-taxcode.
+        ls_vim_line-zz_matched  = gc_matched_ui5_app.
+
+        " ── Currency conversion (exotic currencies: JPY, BHD, etc.) ──
+        DATA: lv_amt_ext TYPE bapicurr-bapicurr,
+              lv_amt_int TYPE bapicurr-bapicurr,
+              lv_conv_rc TYPE bapireturn.
+
+        lv_amt_ext = ls_gr-valueextax.
+        CALL FUNCTION 'BAPI_CURRENCY_CONV_TO_INTERNAL'
+          EXPORTING
+            currency             = ls_po_header-currency
+            amount_external      = lv_amt_ext
+            max_number_of_digits = 15
+          IMPORTING
+            amount_internal      = lv_amt_int
+            return               = lv_conv_rc.
+        ls_vim_line-wrbtr = lv_amt_int.
+
+        lv_amt_ext = ls_gr-taxamount.
+        CALL FUNCTION 'BAPI_CURRENCY_CONV_TO_INTERNAL'
+          EXPORTING
+            currency             = ls_po_header-currency
+            amount_external      = lv_amt_ext
+            max_number_of_digits = 15
+          IMPORTING
+            amount_internal      = lv_amt_int
+            return               = lv_conv_rc.
+        ls_vim_line-tax_amount = lv_amt_int.
+
+        " ── GR reference (only when GR-Based IV is ON) ──
+        IF ls_po_item-gr_basediv = 'X'.
+          ls_vim_line-lfsnr        = ls_gr-deliverynote.
+          ls_vim_line-ref_doc      = ls_gr-grdocnumber.
+          ls_vim_line-ref_doc_year = ls_gr-grdocyear.
+          ls_vim_line-ref_doc_it   = ls_gr-grdocitem.
+        ENDIF.
+
+        APPEND ls_vim_line TO lt_new_vim_lines.
+
+        " ── Build history log comment ──
+        APPEND VALUE tline(
+          tdformat = ''
+          tdline   = |Matched GR Ref { ls_gr-grdocnumber }/{ ls_gr-grdocyear }/{ ls_gr-grdocitem }.|
+        ) TO lt_comments.
+
+      ENDLOOP.
+
+      " ── Check for errors during line construction ───────────────
+      LOOP AT lt_errors INTO DATA(ls_err) WHERE type CA 'EAX'.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = ls_err-message )
+        ) TO result.
+      ENDLOOP.
+      IF line_exists( lt_errors[ type = 'E' ] ).
+        CONTINUE. " Skip to next key — do not update VIM doc
+      ENDIF.
+
+      " ── 7. Instantiate VIM Document Processor and replace lines ─
+      DATA lo_vim_proc TYPE REF TO /opt/cl_vim_doc_processor.
+
+      TRY.
+          CREATE OBJECT lo_vim_proc
+            EXPORTING
+              docid         = lv_vimdocid
+            EXCEPTIONS
+              invalid_docid = 1
+              OTHERS        = 2.
+        CATCH cx_root.
+          APPEND VALUE #( %param = VALUE #(
+            vimdocumentid = lv_vimdocid
+            success       = abap_false
+            messagetext   = |Unable to create VIM document processor for { lv_vimdocid }.| )
+          ) TO result.
+          CONTINUE.
+      ENDTRY.
+
+      IF sy-subrc <> 0.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |Unable to create VIM document processor for { lv_vimdocid }.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " Replace VIM document line items wholesale
+      lo_vim_proc->index_item[] = lt_new_vim_lines[].
+
+      " ── 8. Write VIM History Log: POC Manually Matched GRs ─────
+      TRY.
+          DATA ls_user_option TYPE /opt/vim_t802.
+          CLEAR ls_user_option.
+          ls_user_option-proc_type  = lo_vim_proc->log_header-curr_proc_type.
+          ls_user_option-optionid   = gc_proc_option_matched_grs.  " 9005
+          ls_user_option-from_actor = gc_role_poc.
+          ls_user_option-to_actor   = gc_role_poc.
+
+          lo_vim_proc->log_header = lo_vim_proc->index_header.
+
+          lo_vim_proc->logdata(
+            EXPORTING
+              user_option     = ls_user_option
+              comments        = lt_comments
+              cancelled       = ' ' ).
+
+          " ── 8b. Late matching explanation (if overdue) ──
+          IF lv_late_reason IS NOT INITIAL.
+            CLEAR ls_user_option.
+            ls_user_option-proc_type  = lo_vim_proc->log_header-curr_proc_type.
+            ls_user_option-optionid   = gc_proc_option_late_explain. " 9006
+            ls_user_option-from_actor = gc_role_poc.
+            ls_user_option-to_actor   = gc_role_poc.
+
+            lo_vim_proc->log_header = lo_vim_proc->index_header.
+
+            " Build late comment lines
+            DATA lt_late_comments TYPE tlinetab.
+            CLEAR lt_late_comments.
+
+            " First line: reason code text from domain
+            DATA: lv_reason_text TYPE dd07v-ddtext.
+            CALL FUNCTION 'DOMAIN_VALUE_GET'
+              EXPORTING
+                i_domname  = 'ZZVIM_LATE_REASON_CODE'
+                i_domvalue = CONV dd07v-domvalue_l( lv_late_reason )
+              IMPORTING
+                e_ddtext   = lv_reason_text
+              EXCEPTIONS
+                not_exist  = 1
+                OTHERS     = 2.
+            IF sy-subrc <> 0.
+              lv_reason_text = lv_late_reason. " Fallback to raw code
+            ENDIF.
+
+            APPEND VALUE tline( tdformat = '' tdline = CONV #( lv_reason_text ) ) TO lt_late_comments.
+
+            " Subsequent lines: free text comment
+            IF lv_late_comment IS NOT INITIAL.
+              DATA lt_converted TYPE tlinetab.
+              CALL FUNCTION 'SWA_STRING_TO_TABLE'
+                EXPORTING
+                  character_string          = lv_late_comment
+                IMPORTING
+                  character_table           = lt_converted
+                EXCEPTIONS
+                  no_flat_charlike_structure = 1
+                  OTHERS                    = 2.
+              IF sy-subrc = 0.
+                APPEND LINES OF lt_converted TO lt_late_comments.
+              ENDIF.
+            ENDIF.
+
+            lo_vim_proc->logdata(
+              EXPORTING
+                user_option = ls_user_option
+                comments    = lt_late_comments
+                cancelled   = ' ' ).
+          ENDIF.
+
+          " ── 9. Commit VIM document update ───────────────────────
+          lo_vim_proc->update( EXPORTING do_commit = ' ' ).
+
+        CATCH cx_root INTO DATA(lx_vim).
+          APPEND VALUE #( %param = VALUE #(
+            vimdocumentid = lv_vimdocid
+            success       = abap_false
+            messagetext   = |VIM update failed: { lx_vim->get_longtext( ) }| )
+          ) TO result.
+          CONTINUE.
+      ENDTRY.
+
+      " ── 10. Write audit trail ───────────────────────────────────
+      DATA(lv_seq) = write_audit_header(
+        iv_vimdocid    = lv_vimdocid
+        iv_useraction  = 'S'
+        iv_currency    = ls_vim-waers
+        iv_grossamount = ls_vim-gross_amount ).
+
+      write_audit_items(
+        iv_vimdocid = lv_vimdocid
+        iv_sequence = lv_seq
+        it_grs      = lt_grs ).
+
+      " ── 11. Trigger VIM business rules ──────────────────────────
+      trigger_vim_event( lv_vimdocid ).
+
+      " ── 12. Return success ──────────────────────────────────────
+      APPEND VALUE #( %param = VALUE #(
+        vimdocumentid = lv_vimdocid
+        success       = abap_true
+        messagetext   = |Document { lv_vimdocid } submitted successfully.| )
+      ) TO result.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD reject.
+
+
+    LOOP AT keys INTO DATA(ls_key).
+
+      DATA(lv_vimdocid)    = ls_key-%param-vimdocumentid.
+      DATA(lv_reject_code) = ls_key-%param-rejectreasoncode.
+      DATA(lv_reject_text) = ls_key-%param-rejectcomment.
+
+      " ── 1. Read & validate VIM document ─────────────────────────
+      SELECT SINGLE docid, status, curr_proc_type, credit_memo
+        FROM /opt/vim_1head
+        WHERE docid = @lv_vimdocid
+        INTO @DATA(ls_vim).
+
+      IF sy-subrc <> 0.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |VIM document { lv_vimdocid } not found.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      IF is_vim_status_actionable( iv_status    = ls_vim-status
+                                   iv_proc_type = ls_vim-curr_proc_type ) = abap_false.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |VIM document { lv_vimdocid } is not in an active status.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " Credit memo guard (deferred)
+      IF ls_vim-credit_memo IS NOT INITIAL.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |Credit memo rejection is not yet implemented.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " ── 2. Build rejection reason text ──────────────────────────
+      DATA lv_reason_str TYPE string.
+      CLEAR lv_reason_str.
+
+      " Resolve code text from domain
+      IF lv_reject_code IS NOT INITIAL.
+        DATA: lt_domvals TYPE TABLE OF dd07v.
+        CALL FUNCTION 'GET_DOMAIN_VALUES'
+          EXPORTING
+            domname         = 'ZZVIM_REJECTION_CODE'
+            text            = 'X'
+          TABLES
+            values_tab      = lt_domvals
+          EXCEPTIONS
+            no_values_found = 1
+            OTHERS          = 2.
+        IF sy-subrc = 0.
+          READ TABLE lt_domvals INTO DATA(ls_domval)
+            WITH KEY domvalue_l = lv_reject_code.
+          IF sy-subrc = 0.
+            lv_reason_str = ls_domval-ddtext.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+
+      " Append free-text comment
+      IF lv_reject_text IS NOT INITIAL.
+        IF lv_reason_str IS NOT INITIAL.
+          lv_reason_str = lv_reason_str && cl_abap_char_utilities=>newline && lv_reject_text.
+        ELSE.
+          lv_reason_str = lv_reject_text.
+        ENDIF.
+      ENDIF.
+
+      " Convert to table format for VIM logging
+      DATA lt_reject_comments TYPE tlinetab.
+      CLEAR lt_reject_comments.
+      CALL FUNCTION 'HRHAP_CONVERT_STR_TO_TABLE'
+        EXPORTING
+          note_string = lv_reason_str
+        IMPORTING
+          note_tab    = lt_reject_comments.
+
+      " ── 3. Create VIM Document Processor ────────────────────────
+      DATA lo_vim_proc TYPE REF TO /opt/cl_vim_doc_processor.
+
+      TRY.
+          CREATE OBJECT lo_vim_proc
+            EXPORTING
+              docid         = lv_vimdocid
+            EXCEPTIONS
+              invalid_docid = 1
+              OTHERS        = 2.
+        CATCH cx_root.
+      ENDTRY.
+
+      IF lo_vim_proc IS NOT BOUND.
+        APPEND VALUE #( %param = VALUE #(
+          vimdocumentid = lv_vimdocid
+          success       = abap_false
+          messagetext   = |Unable to create VIM document processor for { lv_vimdocid }.| )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " ── 4. Set RejectedFlag in VIM workflow container ───────────
+      "    (Defensive: if workflow does not exist, rejection still proceeds)
+      DATA: lv_wf_wiid TYPE swwwihead-top_wi_id.
+      TRY.
+          " Attempt 1: GET_WORKFLOW_ID
+          DATA lv_objkey TYPE swo_typeid.
+          CALL FUNCTION 'GET_WORKFLOW_ID'
+            IMPORTING
+              workitemid = lv_objkey
+            EXCEPTIONS
+              not_found  = 1
+              OTHERS     = 2.
+
+          IF sy-subrc = 0 AND lv_objkey IS NOT INITIAL.
+            " Walk up to top-level workflow
+            DATA lv_wi_type TYPE sww_witype.
+            SELECT SINGLE wi_type FROM swwwihead INTO lv_wi_type
+              WHERE wi_id = lv_objkey.
+            IF lv_wi_type <> 'F'.
+              DO.
+                DATA lv_parent TYPE swo_typeid.
+                SELECT SINGLE wi_chckwi FROM swwwihead INTO lv_parent
+                  WHERE wi_id = lv_objkey AND wi_chckwi > 0.
+                IF sy-subrc <> 0.
+                  EXIT.
+                ENDIF.
+                lv_objkey = lv_parent.
+              ENDDO.
+            ENDIF.
+            lv_wf_wiid = lv_objkey.
+          ELSE.
+            " Attempt 2: VIM log history
+            SELECT * FROM /opt/vim_1log
+              WHERE docid = @lv_vimdocid
+              ORDER BY logid DESCENDING
+              INTO TABLE @DATA(lt_log).
+            LOOP AT lt_log INTO DATA(ls_log) WHERE workitem_id IS NOT INITIAL.
+              SELECT SINGLE top_wi_id FROM swwwihead
+                INTO @lv_wf_wiid
+                WHERE wi_id = @ls_log-workitem_id.
+              IF sy-subrc = 0 AND lv_wf_wiid IS NOT INITIAL.
+                EXIT.
+              ENDIF.
+            ENDLOOP.
+
+            " Attempt 3: VIM process table
+            IF lv_wf_wiid IS INITIAL.
+              SELECT SINGLE wi_id FROM /opt/vim_1proc
+                INTO @lv_wf_wiid
+                WHERE docid = @lv_vimdocid
+                  AND wfl_id = 'WS00275269'.
+            ENDIF.
+          ENDIF.
+
+          " Set RejectedFlag in workflow container
+          IF lv_wf_wiid IS NOT INITIAL.
+            DATA lo_wf_cont TYPE REF TO if_swf_cnt_container.
+            CALL FUNCTION 'SWW_WI_CONTAINER_READ'
+              EXPORTING
+                wi_id                    = lv_wf_wiid
+              IMPORTING
+                wi_container_handle      = lo_wf_cont
+              EXCEPTIONS
+                container_does_not_exist = 1
+                read_failed              = 2
+                OTHERS                   = 3.
+
+            IF sy-subrc = 0 AND lo_wf_cont IS BOUND.
+              DATA lv_set_rc TYPE sy-subrc.
+              lo_wf_cont->if_swf_ifs_parameter_container~set(
+                EXPORTING name  = 'RejectedFlag'
+                          value = 'X'
+                IMPORTING returncode = lv_set_rc ).
+
+              IF lv_set_rc IS INITIAL.
+                DATA lx_cont TYPE REF TO cx_swf_cnt_container.
+                CALL FUNCTION 'SWW_WI_CONTAINER_MODIFY'
+                  EXPORTING
+                    wi_id               = lv_wf_wiid
+                    merge_old_container = 'X'
+                    wi_container_handle = lo_wf_cont
+                  IMPORTING
+                    exception           = lx_cont.
+                IF lx_cont IS INITIAL.
+                  "COMMIT WORK AND WAIT.
+                ENDIF.
+              ENDIF.
+            ENDIF.
+          ENDIF.
+
+        CATCH cx_root.
+          " Workflow update failed — non-fatal, continue with rejection
+      ENDTRY.
+
+      " ── 5. Update VIM document status ───────────────────────────
+      lo_vim_proc->index_header-status = gc_status_rejected_by_approver.
+      UPDATE /opt/vim_1head
+        SET status = @gc_status_rejected_by_approver
+        WHERE docid = @lv_vimdocid.
+
+      " ── 6. Write VIM history log: Rejected by POC ───────────────
+      lo_vim_proc->log_header = lo_vim_proc->index_header.
+
+      DATA ls_reject_option TYPE /opt/vim_t802.
+      SELECT SINGLE * FROM /opt/vim_t802
+        INTO @ls_reject_option
+        WHERE proc_type  = @lo_vim_proc->current_proc_type
+          AND optionid   = @gc_proc_option_reject_by_poc
+          AND from_actor = @gc_role_poc.
+
+      lo_vim_proc->logdata(
+        EXPORTING
+          user_option = ls_reject_option
+          comments    = lt_reject_comments ).
+
+      "COMMIT WORK AND WAIT.
+
+      " ── 7. Trigger VIM business rules ───────────────────────────
+      trigger_vim_event( lv_vimdocid ).
+
+      " ── 8. Write audit trail ────────────────────────────────────
+      write_audit_header(
+        iv_vimdocid   = lv_vimdocid
+        iv_useraction = 'R' ).
+
+      " ── 9. Return success ───────────────────────────────────────
+      APPEND VALUE #( %param = VALUE #(
+        vimdocumentid = lv_vimdocid
+        success       = abap_true
+        messagetext   = |Document { lv_vimdocid } has been rejected.| )
+      ) TO result.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD determine_vendor_name.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vendor )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      SELECT SINGLE suppliername
+        FROM i_supplier
+        WHERE supplier = @vim_doc-vendor
+        INTO @DATA(vendor_name).
+
+      IF sy-subrc = 0.
+        MODIFY ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+          ENTITY vimdocument
+            UPDATE FIELDS ( vendorname )
+            WITH VALUE #( (
+              %tky       = vim_doc-%tky
+              vendorname = vendor_name
+            ) ).
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD determine_payment_terms_text.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( paymentterms )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      SELECT SINGLE paymenttermsname
+        FROM i_paymenttermstext
+        WHERE paymentterms = @vim_doc-paymentterms
+          AND language     = @sy-langu
+        INTO @DATA(payment_terms_text).
+
+      IF sy-subrc = 0.
+        MODIFY ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+          ENTITY vimdocument
+            UPDATE FIELDS ( paymenttermstext )
+            WITH VALUE #( (
+              %tky             = vim_doc-%tky
+              paymenttermstext = payment_terms_text
+            ) ).
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD validate_status.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( processstatus )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      CASE vim_doc-processstatus.
+        WHEN '06' OR '08' OR '10' OR '15' OR '16' OR '18'.
+
+          APPEND VALUE #(
+            %tky = vim_doc-%tky
+            %msg = new_message(
+              id       = 'ZVIM_GR_APP'
+              number   = '005'
+              severity = if_abap_behv_message=>severity-error )
+          ) TO reported-vimdocument.
+
+          APPEND VALUE #( %tky = vim_doc-%tky ) TO failed-vimdocument.
+      ENDCASE.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD validate_duplicate_gr.
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vimdocumentid fiscalyear )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+
+    LOOP AT vim_docs INTO DATA(vim_doc).
+      SELECT SINGLE @abap_true
+        FROM mkpf
+        WHERE xblnr = @vim_doc-vimdocumentid
+          AND mjahr = @vim_doc-fiscalyear
+        INTO @DATA(gr_exists).
+
+      IF gr_exists = abap_true.
+        APPEND VALUE #(
+          %tky = vim_doc-%tky
+          %msg = new_message(
+            id       = 'ZVIM_GR_APP'
+            number   = '006'
+            severity = if_abap_behv_message=>severity-error )
+        ) TO reported-vimdocument.
+
+        APPEND VALUE #( %tky = vim_doc-%tky ) TO failed-vimdocument.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD is_vim_status_actionable.
+    IF iv_status = gc_inactive-s06
+      OR iv_status = gc_inactive-s08
+      OR iv_status = gc_inactive-s10
+      OR iv_status = gc_inactive-s15
+      OR iv_status = gc_inactive-s16
+      OR iv_status = gc_inactive-s18
+      OR iv_proc_type = gc_rejected_proc_type.
+      rv_ok = abap_false.
+    ELSE.
+      rv_ok = abap_true.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD deserialise_gr_json.
+    " Parse JSON array from the UI into the internal table.
+    " Expected format:
+    " [{"grdocnumber":"5000000001","grdocyear":"2024","grdocitem":"0001",
+    "   "po_number":"4500000001","po_item":"00010","quantitydelivered":5,
+    "   "uom":"EA","unitprice":100,"taxcode":"S1","taxamount":50,
+    "   "valueextax":500,"deliverynote":"INV123","webre":"X", ...}]
+    IF iv_json IS INITIAL.
+      RETURN.
+    ENDIF.
+    TRY.
+        /ui2/cl_json=>deserialize(
+          EXPORTING json = iv_json
+          CHANGING  data = rt_grs ).
+      CATCH cx_root.
+        CLEAR rt_grs.
+    ENDTRY.
+  ENDMETHOD.
+
+
+  METHOD merge_non_webre_lines.
+    " FD.79: Where GR-Based IV is OFF, all selected GRs for the same
+    " PO number + PO item must be merged into a single VIM line.
+    " Quantities and amounts are summed. The merge handles mixed
+    " reversal/non-reversal rows (reversals subtract quantity).
+    "
+    " The old FM relied on the table being sorted by PO number/item
+    " and used field-symbols to look at adjacent rows. This rebuild
+    " uses a cleaner collect-based approach.
+
+    TYPES: BEGIN OF ty_merge_key,
+             po_number TYPE ebeln,
+             po_item   TYPE ebelp,
+           END OF ty_merge_key.
+
+    DATA: lt_merged TYPE ty_selected_gr_tab,
+          lt_webre  TYPE ty_selected_gr_tab.
+
+    " Separate WEBRE=X lines (these pass through 1:1) from non-WEBRE
+    LOOP AT ct_grs INTO DATA(ls_gr).
+      IF ls_gr-webre = 'X'.
+        APPEND ls_gr TO lt_webre.
+      ELSE.
+        " Find existing merged line for same PO number + item
+        DATA(lv_found) = abap_false.
+        LOOP AT lt_merged ASSIGNING FIELD-SYMBOL(<ls_merged>)
+          WHERE po_number = ls_gr-po_number
+            AND po_item   = ls_gr-po_item.
+          " Sum amounts
+          <ls_merged>-taxamount  += ls_gr-taxamount.
+          <ls_merged>-valueextax += ls_gr-valueextax.
+          " Quantity: reversals (showreversalind=X) are negative contribution
+          IF ls_gr-showreversalind = 'X'.
+            <ls_merged>-quantitydelivered -= ls_gr-quantitydelivered.
+          ELSE.
+            <ls_merged>-quantitydelivered += ls_gr-quantitydelivered.
+          ENDIF.
+          lv_found = abap_true.
+          EXIT.
+        ENDLOOP.
+        IF lv_found = abap_false.
+          APPEND ls_gr TO lt_merged.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+
+    " Recombine: WEBRE lines first, then merged non-WEBRE
+    CLEAR ct_grs.
+    APPEND LINES OF lt_webre TO ct_grs.
+    APPEND LINES OF lt_merged TO ct_grs.
+  ENDMETHOD.
+
+
+  METHOD write_audit_header.
+    " Write a row to ZFCVIM_GR_AUDIT_HDR and return the sequence number.
+    SELECT MAX( sequence ) FROM zfcvim_gr_ahdr
+      WHERE vimdocid = @iv_vimdocid
+      INTO @DATA(lv_max_seq).
+    rv_sequence = lv_max_seq + 1.
+
+    INSERT zfcvim_gr_ahdr FROM @( VALUE #(
+      client      = sy-mandt
+      vimdocid    = iv_vimdocid
+      sequence    = rv_sequence
+      useraction  = iv_useraction
+      actiondate  = sy-datum
+      actiontime  = sy-uzeit
+      actionuser  = sy-uname
+      creditmemo  = iv_creditmemo
+      currency    = iv_currency
+      grossamount = iv_grossamount ) ).
+  ENDMETHOD.
+
+
+  METHOD write_audit_items.
+    DATA lv_itemid TYPE i.
+    LOOP AT it_grs INTO DATA(ls_gr).
+      lv_itemid += 1.
+      INSERT zfcvim_gr_aitm FROM @( VALUE #(
+        client        = sy-mandt
+        vimdocid      = iv_vimdocid
+        sequence      = iv_sequence
+        itemid        = lv_itemid
+        po_number     = ls_gr-po_number
+        po_item       = ls_gr-po_item
+        gr_doc_number = ls_gr-grdocnumber
+        gr_doc_year   = ls_gr-grdocyear
+        gr_doc_item   = ls_gr-grdocitem
+        quantity      = ls_gr-quantitydelivered
+        uom           = ls_gr-uom
+        unitprice     = ls_gr-unitprice
+        taxcode       = ls_gr-taxcode
+        valueextax    = ls_gr-valueextax
+        taxamount     = ls_gr-taxamount
+        webre         = ls_gr-webre ) ).
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD trigger_vim_event.
+    " Trigger PROCESSCOMPLETEDEXTERNALLY to re-run VIM business rules.
+    " This is the same event both the old submit and reject FMs fired.
+    DATA: lt_container TYPE TABLE OF swr_cont,
+          lv_rc        TYPE sy-subrc,
+          lv_event_id  TYPE swe_evtid,
+          lt_messages  TYPE TABLE OF swr_messag.
+
+    APPEND VALUE swr_cont(
+      element = 'INDICATOR'
+      value   = 'C'       " C = Check Rules
+    ) TO lt_container.
+
+    CALL FUNCTION 'SAP_WAPI_CREATE_EVENT'
+      EXPORTING
+        object_type     = gc_vim_object_type      " /OPT/V1001
+        object_key      = CONV swo_typeid( iv_vimdocid )
+        event           = gc_vim_event_completed   " PROCESSCOMPLETEDEXTERNALLY
+        commit_work     = ' '
+      IMPORTING
+        return_code     = lv_rc
+        event_id        = lv_event_id
+      TABLES
+        input_container = lt_container
+        message_lines   = lt_messages.
+  ENDMETHOD.
+
+
+  METHOD check_gr_quantity.
+    " TODO: Implement actual GR quantity check logic
+    " 1. Read all GRs for the PO
+    " 2. Calculate total GR value
+    " 3. Compare against invoice amount
+    " 4. Check tolerances
+
+    READ ENTITIES OF zi_zfc_vim_doc IN LOCAL MODE
+      ENTITY vimdocument
+        FIELDS ( vimdocumentid grossamount purchaseorder )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(vim_docs).
+
+    CHECK vim_docs IS NOT INITIAL.
+  ENDMETHOD.
+
+
+  METHOD get_global_authorizations.
+    IF requested_authorizations-%create = if_abap_behv=>mk-on.
+      result-%create = if_abap_behv=>auth-allowed.
+    ENDIF.
+
+    IF requested_authorizations-%update = if_abap_behv=>mk-on.
+      result-%update = if_abap_behv=>auth-allowed.
+    ENDIF.
+
+    IF requested_authorizations-%delete = if_abap_behv=>mk-on.
+      result-%delete = if_abap_behv=>auth-allowed.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD get_attachment.
+*----------------------------------------------------------------------*
+* ACTION:     getAttachment
+* PURPOSE:    Resolves the direct archive URL for the VIM document's
+*             invoice/credit memo image stored in OpenText, so the
+*             UI5 frontend can open it directly in the browser.
+*
+* APPROACH:
+*   Uses the standard SAP ArchiveLink APIs rather than manually
+*   reading binary content. The archive server is directly accessible
+*   from the client browser, so we simply resolve the URL and return
+*   it — no binary data flows through the application server.
+*
+* FLOW:
+*   1. Read the VIM document to get the VimDocumentId
+*   2. Build the ArchiveLink object ID
+*   3. Call ARCHIV_GET_CONNECTIONS to get archive connection details
+*   4. Call SCMS_HTTP_INFO to get the MIME type
+*   5. Call SCMS_AO_URL_READ to get the direct archive URL
+*   6. Read filename from file attributes (TOAAT)
+*   7. Return the URL, MIME type and filename to the frontend
+*----------------------------------------------------------------------*
+
+    LOOP AT keys INTO DATA(ls_key).
+
+      DATA: lv_vim_doc_id      TYPE /opt/docid,
+            lv_object_id       TYPE saeobjid,
+            lt_connections     TYPE STANDARD TABLE OF toav0,
+            ls_connection      TYPE toav0,
+            lt_file_attributes TYPE STANDARD TABLE OF toaat,
+            ls_file_attributes TYPE toaat,
+            lv_mime_type       TYPE w3conttype,
+            lv_url             TYPE saeuri,
+            lv_filename        TYPE char255.
+
+      CLEAR: lt_connections, lt_file_attributes,
+             lv_mime_type, lv_url, lv_filename.
+
+      " Get the VIM document ID from the action parameter
+      lv_vim_doc_id = ls_key-%param-VimDocumentId.
+      lv_object_id  = lv_vim_doc_id.
+
+      " Get the ArchiveLink connections for this object
+      CALL FUNCTION 'ARCHIV_GET_CONNECTIONS'
+        EXPORTING
+          object_id       = lv_object_id
+        TABLES
+          connections     = lt_connections
+          file_attributes = lt_file_attributes
+        EXCEPTIONS
+          nothing_found   = 1
+          OTHERS          = 2.
+
+      IF sy-subrc <> 0 OR lt_connections IS INITIAL.
+        APPEND VALUE #(
+          %cid   = ls_key-%cid
+          %param = VALUE #(
+            ArchiveUrl = ''
+            MimeType   = ''
+            Filename   = ''
+          )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      READ TABLE lt_connections INTO ls_connection INDEX 1.
+
+      " Get the MIME type
+      CALL FUNCTION 'SCMS_HTTP_INFO'
+        EXPORTING
+          crep_id               = ls_connection-archiv_id
+          doc_id                = ls_connection-arc_doc_id
+        IMPORTING
+          data_mimetype         = lv_mime_type
+        EXCEPTIONS
+          OTHERS                = 9.
+
+      IF sy-subrc <> 0.
+        lv_mime_type = 'application/pdf'.
+      ENDIF.
+
+      " Get the direct archive URL
+      CALL FUNCTION 'SCMS_AO_URL_READ'
+        EXPORTING
+          arc_id        = ls_connection-archiv_id
+          doc_id        = ls_connection-arc_doc_id
+          document_type = lv_mime_type
+          pdf_mode      = space
+        IMPORTING
+          url           = lv_url
+        EXCEPTIONS
+          error         = 1
+          OTHERS        = 2.
+
+      IF sy-subrc <> 0.
+        APPEND VALUE #(
+          %cid   = ls_key-%cid
+          %param = VALUE #(
+            ArchiveUrl = ''
+            MimeType   = ''
+            Filename   = ''
+          )
+        ) TO result.
+        CONTINUE.
+      ENDIF.
+
+      " Get filename from file attributes
+      READ TABLE lt_file_attributes INTO ls_file_attributes
+        WITH KEY arc_doc_id = ls_connection-arc_doc_id.
+
+      IF sy-subrc = 0 AND ls_file_attributes-filename IS NOT INITIAL.
+        lv_filename = ls_file_attributes-filename.
+      ELSE.
+        lv_filename = |invoice_{ lv_vim_doc_id }.pdf|.
+      ENDIF.
+
+      " Return the result
+      APPEND VALUE #(
+        %cid   = ls_key-%cid
+        %param = VALUE #(
+          ArchiveUrl = lv_url
+          MimeType   = lv_mime_type
+          Filename   = lv_filename
+        )
+      ) TO result.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+ENDCLASS.

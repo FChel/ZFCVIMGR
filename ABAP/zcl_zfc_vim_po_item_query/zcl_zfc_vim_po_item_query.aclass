@@ -1,0 +1,167 @@
+class zcl_zfc_vim_po_item_query definition
+  public
+  final
+  create public .
+
+  public section.
+    INTERFACES if_rap_query_provider.
+
+  protected section.
+  private section.
+endclass.
+
+
+CLASS zcl_zfc_vim_po_item_query IMPLEMENTATION.
+
+  METHOD if_rap_query_provider~select.
+
+    DATA lt_result TYPE STANDARD TABLE OF zc_zfc_vim_po_item_ce.
+
+    " ---------------------------------------------------------------
+    " 1. Extract filter conditions
+    " ---------------------------------------------------------------
+    TRY.
+        DATA(lt_filter) = io_request->get_filter( )->get_as_ranges( ).
+      CATCH cx_rap_query_filter_no_range.
+        io_response->set_total_number_of_records( 0 ).
+        io_response->set_data( lt_result ).
+        RETURN.
+    ENDTRY.
+
+    DATA: lr_purchase_order TYPE RANGE OF ebeln.
+
+    LOOP AT lt_filter INTO DATA(ls_filter).
+      CASE ls_filter-name.
+        WHEN 'PURCHASEORDER'.
+          MOVE-CORRESPONDING ls_filter-range TO lr_purchase_order.
+      ENDCASE.
+    ENDLOOP.
+
+    IF lr_purchase_order IS INITIAL.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      RETURN.
+    ENDIF.
+
+    " ---------------------------------------------------------------
+    " 1a. GUARD: Verify PO exists before querying EKPO/EKBE
+    " ---------------------------------------------------------------
+    DATA lv_po_value TYPE ebeln.
+    READ TABLE lr_purchase_order INDEX 1 INTO DATA(ls_po_range).
+    IF sy-subrc = 0.
+      lv_po_value = ls_po_range-low.
+    ENDIF.
+
+    IF lv_po_value IS INITIAL.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      RETURN.
+    ENDIF.
+
+    SELECT SINGLE ebeln FROM ekko
+      WHERE ebeln = @lv_po_value
+      INTO @DATA(lv_po_exists).
+    IF sy-subrc <> 0.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      RETURN.
+    ENDIF.
+
+    " ---------------------------------------------------------------
+    " 2. Fetch PO items from EKPO with currency from EKKO
+    " ---------------------------------------------------------------
+    SELECT ekpo~ebeln              AS PurchaseOrder,
+           ekpo~ebelp              AS PurchaseOrderItem,
+           ekpo~matnr              AS Material,
+           ekpo~txz01              AS Description,
+           ekpo~werks              AS Plant,
+           ekpo~lgort              AS StorageLocation,
+           ekpo~matkl              AS MaterialGroup,
+           ekpo~menge              AS OrderQuantity,
+           ekpo~meins              AS OrderUnit,
+           ekpo~netpr              AS NetPriceAmount,
+           ekpo~netwr              AS NetValue,
+           ekko~waers              AS Currency,
+           ekpo~mwskz              AS TaxCode,
+           ekpo~webre              AS GRBasedIV,
+           ekpo~lebre              AS InvoiceIsExpected,
+           ekpo~bukrs              AS CompanyCode,
+           ekpo~loekz              AS DeletionIndicator,
+           ekpo~pstyp              AS PurchaseOrderItemCategory
+      FROM ekpo
+     INNER JOIN ekko
+        ON ekko~ebeln = ekpo~ebeln
+     WHERE ekpo~ebeln IN @lr_purchase_order
+       AND ekpo~loekz  = ''
+      INTO TABLE @DATA(lt_po_items).
+
+    IF lt_po_items IS INITIAL.
+      io_response->set_total_number_of_records( 0 ).
+      io_response->set_data( lt_result ).
+      RETURN.
+    ENDIF.
+
+    " ---------------------------------------------------------------
+    " 3. Calculate remaining quantities from EKBE
+    " ---------------------------------------------------------------
+    SELECT ebeln, ebelp,
+           SUM( menge ) AS total_qty
+      FROM ekbe
+     WHERE ebeln IN @lr_purchase_order
+       AND vgabe  = '1'
+       AND bwart  = '101'
+       AND shkzg  = 'S'
+     GROUP BY ebeln, ebelp
+      INTO TABLE @DATA(lt_gr_totals).
+
+    SELECT ebeln, ebelp,
+           SUM( menge ) AS total_qty
+      FROM ekbe
+     WHERE ebeln IN @lr_purchase_order
+       AND vgabe  = '1'
+       AND bwart  = '102'
+     GROUP BY ebeln, ebelp
+      INTO TABLE @DATA(lt_rev_totals).
+
+    " ---------------------------------------------------------------
+    " 4. Build result set
+    " ---------------------------------------------------------------
+    LOOP AT lt_po_items INTO DATA(ls_po_item).
+      APPEND INITIAL LINE TO lt_result ASSIGNING FIELD-SYMBOL(<fs>).
+      MOVE-CORRESPONDING ls_po_item TO <fs>.
+
+      DATA(lv_received) = VALUE menge_d( ).
+      DATA(lv_reversed) = VALUE menge_d( ).
+
+      READ TABLE lt_gr_totals INTO DATA(ls_gr)
+        WITH KEY ebeln = ls_po_item-PurchaseOrder
+                 ebelp = ls_po_item-PurchaseOrderItem.
+      IF sy-subrc = 0.
+        lv_received = ls_gr-total_qty.
+      ENDIF.
+
+      READ TABLE lt_rev_totals INTO DATA(ls_rev)
+        WITH KEY ebeln = ls_po_item-PurchaseOrder
+                 ebelp = ls_po_item-PurchaseOrderItem.
+      IF sy-subrc = 0.
+        lv_reversed = ls_rev-total_qty.
+      ENDIF.
+
+      <fs>-RemainingQuantity = ls_po_item-OrderQuantity
+                             - lv_received
+                             + lv_reversed.
+
+    ENDLOOP.
+
+    " ---------------------------------------------------------------
+    " 5. Return results
+    " ---------------------------------------------------------------
+    IF io_request->is_total_numb_of_rec_requested( ).
+      io_response->set_total_number_of_records( lines( lt_result ) ).
+    ENDIF.
+
+    io_response->set_data( lt_result ).
+
+  ENDMETHOD.
+
+ENDCLASS.

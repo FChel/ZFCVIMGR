@@ -1,0 +1,30 @@
+@EndUserText.label : 'VIM GR Matching - Audit Item'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #RESTRICTED
+define table zfcvim_gr_aitm {
+
+  key client    : abap.clnt not null;
+  key vimdocid  : /opt/docid not null;
+  key sequence  : abap.int4 not null;
+  key itemid    : abap.int4 not null;
+  po_number     : ebeln;
+  po_item       : ebelp;
+  gr_doc_number : mblnr;
+  gr_doc_year   : mjahr;
+  gr_doc_item   : mblpo;
+  @Semantics.quantity.unitOfMeasure : 'zfcvim_gr_aitm.uom'
+  quantity      : abap.quan(13,3);
+  uom           : meins;
+  @Semantics.amount.currencyCode : 'zfcvim_gr_aitm.currency'
+  unitprice     : netpr;
+  taxcode       : mwskz;
+  @Semantics.amount.currencyCode : 'zfcvim_gr_aitm.currency'
+  valueextax    : abap.curr(15,2);
+  @Semantics.amount.currencyCode : 'zfcvim_gr_aitm.currency'
+  taxamount     : abap.curr(15,2);
+  currency      : waers;
+  webre         : webre;
+
+}

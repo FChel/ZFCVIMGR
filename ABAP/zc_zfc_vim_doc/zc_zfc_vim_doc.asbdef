@@ -1,0 +1,31 @@
+projection;
+strict ( 2 );
+
+define behavior for ZC_ZFC_VIM_DOC alias VimDocument
+use etag
+{
+  // Projections of CRUD operations
+  use create;
+  use update;
+  use delete;
+
+  // Actions
+  use action validate;
+  use action calculateBalance;
+  use action submitGR;
+  use action reject;
+  use action getAttachment;
+
+  // Only the true composition child is part of the behavior
+  use association _Items { create; }
+
+}
+
+define behavior for ZC_ZFC_VIM_DOC_ITEM alias VimDocumentItem
+use etag
+{
+  use update;
+  use delete;
+
+  use association _VimDocument;
+}
