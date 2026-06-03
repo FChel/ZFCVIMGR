@@ -1,8 +1,0 @@
-@EndUserText.label: 'Access Control for VIM Document Item'
-@MappingRole: true
-define role ZC_ZFC_VIM_DOC_ITEM {
-  grant select on ZC_ZFC_VIM_DOC_ITEM
-    where 
-      // Inherit from consumption parent
-      inheriting conditions from entity ZI_ZFC_VIM_DOC_ITEM;
-}
